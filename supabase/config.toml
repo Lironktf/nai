@@ -1,0 +1,36 @@
+# Supabase local dev configuration
+# Used by `supabase start` to spin up a local Postgres + Studio instance.
+# For production, point SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY at your
+# hosted project — no config.toml changes needed.
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://localhost"
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+# We use custom JWT auth, not Supabase Auth.
+# Supabase Auth is disabled in app logic but the service still runs locally.
+site_url = "http://localhost:5173"
+jwt_expiry = 900
