@@ -1,16 +1,28 @@
 import { useEffect, useState } from 'react';
 import Register from './pages/Register.jsx';
+import Login from './pages/Login.jsx';
 import KycFlow from './pages/KycFlow.jsx';
 import KycPending from './pages/KycPending.jsx';
-import EnrollPlaceholder from './pages/EnrollPlaceholder.jsx';
+import EnrollmentFlow from './pages/EnrollmentFlow.jsx';
+import AdminPanel from './pages/AdminPanel.jsx';
 import { api } from './lib/api.js';
 
+// Decode JWT payload without verification (display-only)
+function decodeJwt(token) {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch {
+    return null;
+  }
+}
+
 // Screens in the user lifecycle:
-//   register → kyc → kyc_pending → enroll (Chunk 3+)
+//   register → login → kyc → kyc_pending → enroll → done
+//   admin users land directly on the admin panel
 //   On refresh with a token: resume at the correct screen based on server status.
 
 const STATUS_TO_SCREEN = {
-  pending_kyc: 'kyc',              // still needs to complete Persona flow
+  pending_kyc: 'kyc',
   pending_video: 'enroll',
   pending_enrollment: 'enroll',
   pending_admin: 'enroll',
@@ -19,32 +31,55 @@ const STATUS_TO_SCREEN = {
 };
 
 export default function App() {
-  const [screen, setScreen] = useState('boot'); // boot | register | kyc | kyc_pending | enroll | rejected
+  const [screen, setScreen] = useState('boot'); // boot | register | login | kyc | kyc_pending | enroll | admin | rejected
 
-  // On mount: check for an existing token and resume at the right screen
   useEffect(() => {
     const token = localStorage.getItem('th_token');
     if (!token) {
       setScreen('register');
       return;
     }
+
+    const payload = decodeJwt(token);
+    if (payload?.isAdmin) {
+      setScreen('admin');
+      return;
+    }
+
     api.kycStatus()
       .then(({ status }) => setScreen(STATUS_TO_SCREEN[status] ?? 'register'))
       .catch(() => {
-        // Token likely expired
         localStorage.removeItem('th_token');
         setScreen('register');
       });
   }, []);
 
-  if (screen === 'boot') {
-    return <Loading />;
+  function handleAuthSuccess(token) {
+    localStorage.setItem('th_token', token);
+    const payload = decodeJwt(token);
+    if (payload?.isAdmin) {
+      setScreen('admin');
+    } else {
+      setScreen('kyc');
+    }
   }
+
+  if (screen === 'boot') return <Loading />;
 
   if (screen === 'register') {
     return (
       <Register
-        onRegistered={() => setScreen('kyc')}
+        onRegistered={(token) => handleAuthSuccess(token)}
+        onLoginClick={() => setScreen('login')}
+      />
+    );
+  }
+
+  if (screen === 'login') {
+    return (
+      <Login
+        onLoggedIn={(token) => handleAuthSuccess(token)}
+        onRegisterClick={() => setScreen('register')}
       />
     );
   }
@@ -53,7 +88,7 @@ export default function App() {
     return (
       <KycFlow
         onComplete={() => setScreen('kyc_pending')}
-        onError={() => setScreen('kyc_pending')} // Still poll — Persona may have captured docs
+        onError={() => setScreen('kyc_pending')}
       />
     );
   }
@@ -68,7 +103,11 @@ export default function App() {
   }
 
   if (screen === 'enroll') {
-    return <EnrollPlaceholder />;
+    return <EnrollmentFlow />;
+  }
+
+  if (screen === 'admin') {
+    return <AdminPanel />;
   }
 
   if (screen === 'rejected') {

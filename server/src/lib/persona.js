@@ -71,6 +71,56 @@ export async function fetchInquiryDetails(inquiryId) {
   };
 }
 
+// Fetch a verification by ID, including its parent inquiry.
+// Returns { inquiryId, referenceId, documentType, documentCountry,
+//           faceMatchScore, livenessScore } or null on failure.
+export async function fetchVerificationWithInquiry(verificationId) {
+  const res = await fetch(
+    `${PERSONA_BASE}/verifications/${verificationId}?include=inquiry`,
+    { headers: personaHeaders }
+  );
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const vAttrs = json.data?.attributes ?? {};
+  const inquiry = (json.included ?? []).find((i) => i.type === 'inquiry');
+
+  return {
+    inquiryId: inquiry?.id ?? null,
+    referenceId: inquiry?.attributes?.referenceId ?? null,
+    documentType: vAttrs.documentType ?? vAttrs.selectedDocumentType ?? null,
+    documentCountry: vAttrs.countryCode ?? vAttrs.selectedCountryCode ?? null,
+    faceMatchScore: vAttrs.faceComparisonScore ?? null,
+    livenessScore: vAttrs.livenessScore ?? null,
+  };
+}
+
+// Fetch the primary selfie photo URL from a completed inquiry.
+// Persona stores selfie captures inside the included verification/selfie object.
+// Returns the first available photo URL, or null if not found.
+export async function fetchSelfiePhotoUrl(inquiryId) {
+  const res = await fetch(
+    `${PERSONA_BASE}/inquiries/${inquiryId}?include=verifications`,
+    { headers: personaHeaders }
+  );
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const verifications = json.included ?? [];
+  const selfie = verifications.find((v) => v.type?.startsWith('verification/selfie'));
+
+  if (!selfie) return null;
+
+  const attrs = selfie.attributes ?? {};
+  // Persona returns selfie photos in various attribute shapes depending on template version.
+  return (
+    attrs.selfiePhotoUrl ??
+    attrs.photoUrls?.[0] ??
+    attrs.capturedPhotoUrl ??
+    null
+  );
+}
+
 // Verify the Persona-Signature header using HMAC-SHA256.
 // rawBody must be a Buffer (use express.raw() on the webhook route).
 // Returns true if the signature is valid.

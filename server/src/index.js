@@ -8,13 +8,22 @@ import jwt from 'jsonwebtoken';
 
 import authRouter from './routes/auth.js';
 import kycRouter from './routes/kyc.js';
+import enrollRouter from './routes/enroll.js';
+import adminRouter from './routes/admin.js';
+import mobileRouter from './routes/mobile.js';
+import { ensureCollection } from './lib/qdrant.js';
 
 const app = express();
 const httpServer = createServer(app);
 
+const CORS_ORIGINS = [
+  process.env.CLIENT_URL || 'http://localhost:5173',
+  process.env.MOBILE_ORIGIN,
+].filter(Boolean);
+
 export const io = new SocketServer(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: CORS_ORIGINS,
     methods: ['GET', 'POST'],
   },
 });
@@ -42,10 +51,9 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/auth', authRouter);
 app.use('/kyc', kycRouter);
-// Chunk 3: /enroll, /admin/enrollment-queue, /admin/enrollment-review
-// Chunk 4: /verification
-// Chunk 5: /verify/:code
-// Chunk 6: /admin/stats, /admin/audit-log, /user
+app.use('/enroll', enrollRouter);
+app.use('/admin', adminRouter);
+app.use('/mobile', mobileRouter);
 
 // ── Socket.io auth gate ───────────────────────────────────────────────────────
 io.use((socket, next) => {
@@ -60,7 +68,10 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  console.log(`Socket connected: ${socket.id} (user ${socket.user?.userId})`);
+  const userId = socket.user?.userId;
+  console.log(`Socket connected: ${socket.id} (user ${userId})`);
+  // Join a private room keyed by userId so mobile.js can emit targeted events.
+  if (userId) socket.join(userId);
   socket.on('disconnect', () => {
     console.log(`Socket disconnected: ${socket.id}`);
   });
@@ -68,6 +79,9 @@ io.on('connection', (socket) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`TrustHandshake server running on port ${PORT}`);
+  await ensureCollection().catch((err) =>
+    console.warn('[Qdrant] Could not ensure collection (is Qdrant running?):', err.message)
+  );
 });

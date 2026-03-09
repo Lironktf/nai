@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "TrustHandshake",
+    "slug": "trusthandshake",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "trusthandshake",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.trusthandshake.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to capture a live selfie for identity verification.",
+        "NSFaceIDUsageDescription": "Used to verify your identity before a handshake."
+      }
+    },
+    "android": {
+      "package": "com.trusthandshake.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-camera",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -47,4 +47,32 @@ router.post('/register', async (req, res) => {
   return res.status(201).json({ token, user });
 });
 
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+// POST /auth/login
+// Returns a JWT. Works for both regular users and admins.
+router.post('/login', async (req, res) => {
+  const parsed = loginSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const { email, password } = parsed.data;
+
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('id, email, password_hash, status, is_admin')
+    .eq('email', email)
+    .single();
+
+  if (error || !user) return res.status(401).json({ error: 'Invalid credentials' });
+
+  const valid = await bcrypt.compare(password, user.password_hash);
+  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+
+  const token = signToken({ userId: user.id, email: user.email, isAdmin: user.is_admin });
+  return res.json({ token, user: { id: user.id, email: user.email, status: user.status, isAdmin: user.is_admin } });
+});
+
 export default router;
