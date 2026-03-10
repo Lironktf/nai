@@ -52,7 +52,7 @@ export const api = {
       body: JSON.stringify({ registrationResponse }),
     }),
 
-  // Passkey assertion (auth)
+  // Passkey assertion (legacy mobile verification session)
   passkeyAssertStart: (sessionId: string) =>
     request<{ challengeOptions: any }>('/mobile/passkey/assert/start', {
       method: 'POST',
@@ -100,7 +100,7 @@ export const api = {
   recentVerifications: () =>
     request<Array<{ id: string; peerName: string; verifiedAt: string; code: string }>>('/mobile/verification/recent'),
 
-  // Face Liveness
+  // Face Liveness (legacy endpoints)
   livenessStart: () =>
     request<{ sessionId: string }>('/mobile/liveness/start', { method: 'POST' }),
 
@@ -113,6 +113,57 @@ export const api = {
     }>('/mobile/liveness/complete', {
       method: 'POST',
       body: JSON.stringify({ sessionId }),
+    }),
+
+  // Meet MVP
+  meetJoin: (meetingCode: string, displayName?: string) =>
+    request<{
+      sessionId: string;
+      meetingCode: string;
+      participantId: string;
+      status: string;
+      reauthIntervalMinutes: number;
+    }>('/meet/join', {
+      method: 'POST',
+      body: JSON.stringify({ meetingCode, displayName }),
+    }),
+
+  meetLivenessStart: (sessionId: string) =>
+    request<{ livenessSessionId: string }>(`/meet/session/${sessionId}/liveness/start`, {
+      method: 'POST',
+    }),
+
+  meetLivenessComplete: (sessionId: string, livenessSessionId: string) =>
+    request<{
+      livenessConfidence: number;
+      livenessPass: boolean;
+      faceMatchPassed: boolean;
+      faceMatchScore: number;
+    }>(`/meet/session/${sessionId}/liveness/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ livenessSessionId }),
+    }),
+
+  meetPasskeyAssertStart: (sessionId: string) =>
+    request<{ challengeOptions: any }>(`/meet/session/${sessionId}/passkey/assert/start`, {
+      method: 'POST',
+    }),
+
+  meetPasskeyAssertComplete: (sessionId: string, assertionResponse: any) =>
+    request<{ ok: boolean }>(`/meet/session/${sessionId}/passkey/assert/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ assertionResponse }),
+    }),
+
+  meetCompleteAuth: (sessionId: string, payload?: { status?: 'verified' | 'failed'; failureReason?: string }) =>
+    request<{
+      ok: boolean;
+      status: 'verified' | 'failed';
+      verificationExpiresAt?: string;
+      reauthIntervalMinutes?: number;
+    }>(`/meet/session/${sessionId}/complete-auth`, {
+      method: 'POST',
+      body: JSON.stringify(payload ?? { status: 'verified' }),
     }),
 
   // Dev-only bypass for Expo Go (passkey native module not available)
