@@ -12,7 +12,7 @@ import {
   verifyAuthChallenge,
   MOBILE_ORIGIN,
 } from '../lib/webauthn.js';
-import { compareFaces } from '../lib/rekognition.js';
+import { compareFaces, createLivenessSession, getLivenessResult } from '../lib/rekognition.js';
 
 const router = Router();
 
@@ -545,6 +545,57 @@ router.get('/verification/recent', requireAuth, async (req, res) => {
   );
 
   return res.json(results);
+});
+
+// ── Face Liveness ─────────────────────────────────────────────────────────────
+
+// POST /mobile/liveness/start
+// Creates a Rekognition Face Liveness session and returns the sessionId.
+// The mobile FaceLivenessDetector component uses this to run the challenge.
+router.post('/liveness/start', requireAuth, async (req, res) => {
+  try {
+    const sessionId = await createLivenessSession();
+    return res.json({ sessionId });
+  } catch (err) {
+    console.error('[liveness/start] error:', err.message);
+    return res.status(502).json({ error: 'Failed to create liveness session' });
+  }
+});
+
+// POST /mobile/liveness/complete
+// Called after FaceLivenessDetector finishes on the client.
+// Fetches the liveness result from Rekognition, checks confidence, and
+// runs CompareFaces between the liveness reference image and the stored profile photo.
+// Returns { livenessConfidence, livenessPass, faceMatchPassed, faceMatchScore }.
+router.post('/liveness/complete', requireAuth, async (req, res) => {
+  const { userId } = req.user;
+  const { sessionId } = req.body;
+
+  if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('profile_photo_s3_key')
+    .eq('id', userId)
+    .single();
+
+  if (!user?.profile_photo_s3_key) {
+    return res.status(422).json({ error: 'No reference face photo found. Please complete KYC first.' });
+  }
+
+  try {
+    const result = await getLivenessResult(sessionId, user.profile_photo_s3_key);
+    return res.json(result);
+  } catch (err) {
+    console.error('[liveness/complete] error:', err.message);
+    return res.status(422).json({
+      error: err.message,
+      livenessPass: false,
+      faceMatchPassed: false,
+      livenessConfidence: 0,
+      faceMatchScore: 0,
+    });
+  }
 });
 
 // ── Dev-only test helpers ─────────────────────────────────────────────────────

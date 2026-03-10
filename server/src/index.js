@@ -5,12 +5,18 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import { existsSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 import authRouter from './routes/auth.js';
 import kycRouter from './routes/kyc.js';
 import enrollRouter from './routes/enroll.js';
 import adminRouter from './routes/admin.js';
 import mobileRouter from './routes/mobile.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const clientDist = join(__dirname, '..', '..', 'client', 'dist');
 
 const app = express();
 // Trust the first proxy (ngrok / reverse proxy) so express-rate-limit
@@ -57,6 +63,19 @@ app.use('/kyc', kycRouter);
 app.use('/enroll', enrollRouter);
 app.use('/admin', adminRouter);
 app.use('/mobile', mobileRouter);
+
+// ── Liveness page (built client static files) ─────────────────────────────────
+// The mobile WebView opens /liveness?sessionId=...&identityPoolId=...&region=...
+// Serve the pre-built React client bundle from client/dist.
+// Run `npm run build` in the client/ directory before using this.
+if (existsSync(clientDist)) {
+  app.use('/assets', express.static(join(clientDist, 'assets')));
+  app.get('/liveness', (_req, res) => res.sendFile(join(clientDist, 'index.html')));
+} else {
+  app.get('/liveness', (_req, res) =>
+    res.status(503).send('Liveness page not built. Run: cd client && npm run build')
+  );
+}
 
 // ── Socket.io auth gate ───────────────────────────────────────────────────────
 io.use((socket, next) => {

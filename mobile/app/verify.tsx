@@ -2,13 +2,20 @@ import { View, Text, Image, ActivityIndicator, Animated } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import WebView from 'react-native-webview';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { api } from '../lib/api';
 import { assertPasskey } from '../lib/passkey';
-import { captureAndCheckFace } from '../lib/embeddings';
 
-type VerifyStep = 'waiting' | 'incoming' | 'auth' | 'checking' | 'peer_pending' | 'error';
+type VerifyStep =
+  | 'waiting'
+  | 'incoming'
+  | 'auth'
+  | 'liveness_loading'  // fetching liveness sessionId from server
+  | 'liveness_webview'  // WebView running FaceLivenessDetector
+  | 'checking'          // server evaluating liveness + face match
+  | 'peer_pending'
+  | 'error';
 
 export default function Verify() {
   const { sessionId, peerName, peerPhoto, mode, devBypass } = useLocalSearchParams<{
@@ -22,9 +29,8 @@ export default function Verify() {
 
   const [step, setStep] = useState<VerifyStep>(mode === 'incoming' ? 'incoming' : 'waiting');
   const [error, setError] = useState('');
+  const [livenessSessionId, setLivenessSessionId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cameraRef = useRef<CameraView>(null);
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const pulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -65,27 +71,43 @@ export default function Verify() {
   }
 
   async function handleAuth() {
-    setStep('checking');
     setError('');
+    if (isDevBypass) {
+      setStep('checking');
+      await handleBypassAssert();
+      return;
+    }
+    setStep('liveness_loading');
     try {
-      if (isDevBypass) {
-        await handleBypassAssert();
+      const { sessionId: lsid } = await api.livenessStart();
+      setLivenessSessionId(lsid);
+      setStep('liveness_webview');
+    } catch (err: any) {
+      setError(err.message || 'Failed to start liveness check');
+      setStep('error');
+    }
+  }
+
+  async function handleLivenessComplete() {
+    if (!livenessSessionId) return;
+    setStep('checking');
+    try {
+      const { livenessPass, livenessConfidence, faceMatchPassed, faceMatchScore } =
+        await api.livenessComplete(livenessSessionId);
+
+      if (!livenessPass) {
+        setError(
+          `Liveness check failed (confidence: ${livenessConfidence?.toFixed(1)}%). ` +
+          'Ensure you are in good lighting and face the camera directly.'
+        );
+        setStep('error');
         return;
       }
-
-      if (!cameraPermission?.granted) {
-        const result = await requestCameraPermission();
-        if (!result.granted) {
-          setError('Camera permission is required for face verification.');
-          setStep('error');
-          return;
-        }
-      }
-
-      if (!cameraRef.current) throw new Error('Camera not ready');
-      const { passed, score } = await captureAndCheckFace(cameraRef.current as any, sessionId);
-      if (!passed) {
-        setError(`Face check failed (score: ${score?.toFixed(2)}). Try again in better lighting.`);
+      if (!faceMatchPassed) {
+        setError(
+          `Face does not match your profile (score: ${faceMatchScore?.toFixed(1)}%). ` +
+          'Please try again in better lighting.'
+        );
         setStep('error');
         return;
       }
@@ -139,9 +161,7 @@ export default function Verify() {
             <PeerAvatar name={peerName} photoUrl={peerPhoto} size="large" />
           </Animated.View>
           <Text className="text-ink text-2xl font-bold text-center">{peerName}</Text>
-          <Text className="text-muted text-base text-center">
-            Waiting for them to respond...
-          </Text>
+          <Text className="text-muted text-base text-center">Waiting for them to respond...</Text>
           <ActivityIndicator color="#1A3A5C" />
         </View>
       </SafeAreaView>
@@ -155,9 +175,7 @@ export default function Verify() {
           <View className="flex-1 items-center justify-center gap-6">
             <PeerAvatar name={peerName} photoUrl={peerPhoto} size="large" />
             <Text className="text-ink text-2xl font-bold text-center">{peerName}</Text>
-            <Text className="text-muted text-base text-center">
-              wants to verify with you
-            </Text>
+            <Text className="text-muted text-base text-center">wants to verify with you</Text>
           </View>
           <View className="gap-3">
             <PrimaryButton label="Accept" onPress={handleAccept} />
@@ -171,7 +189,6 @@ export default function Verify() {
   if (step === 'auth') {
     return (
       <SafeAreaView className="flex-1 bg-bg">
-        <CameraView ref={cameraRef} style={{ width: 0, height: 0 }} facing="front" />
         <View className="flex-1 px-8 pb-12 justify-between">
           <View className="flex-1 items-center justify-center gap-6">
             <PeerAvatar name={peerName} photoUrl={peerPhoto} size="large" />
@@ -181,6 +198,74 @@ export default function Verify() {
           <PrimaryButton label="Verify with Face ID" onPress={handleAuth} />
         </View>
       </SafeAreaView>
+    );
+  }
+
+  if (step === 'liveness_loading') {
+    return (
+      <SafeAreaView className="flex-1 bg-bg items-center justify-center gap-4">
+        <ActivityIndicator size="large" color="#1A3A5C" />
+        <Text className="text-ink text-base font-semibold">Preparing liveness check...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (step === 'liveness_webview' && livenessSessionId) {
+    const livenessUrl =
+      `${process.env.EXPO_PUBLIC_API_URL}/liveness` +
+      `?sessionId=${livenessSessionId}` +
+      `&identityPoolId=${encodeURIComponent(process.env.EXPO_PUBLIC_COGNITO_IDENTITY_POOL_ID ?? '')}` +
+      `&region=${process.env.EXPO_PUBLIC_AWS_REGION ?? 'us-east-1'}`;
+
+    // Inject JS to catch any unhandled errors and report back via postMessage.
+    const errorCaptureJS = `
+      window.onerror = function(msg, src, line, col, err) {
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
+          JSON.stringify({ jsError: msg + ' (' + src + ':' + line + ')' })
+        );
+        return false;
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
+          JSON.stringify({ jsError: 'Unhandled promise: ' + (e.reason || e) })
+        );
+      });
+      true;
+    `;
+
+    return (
+      <View style={{ flex: 1 }}>
+        <WebView
+          source={{ uri: livenessUrl }}
+          style={{ flex: 1 }}
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          injectedJavaScriptBeforeContentLoaded={errorCaptureJS}
+          onMessage={(event) => {
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              if (data.done) {
+                handleLivenessComplete();
+              } else if (data.error) {
+                setError(data.error);
+                setStep('error');
+              } else if (data.jsError) {
+                // Surface JS errors from inside the WebView
+                setError(`WebView JS error: ${data.jsError}`);
+                setStep('error');
+              }
+            } catch {}
+          }}
+          onHttpError={(e) => {
+            setError(`Page load failed: HTTP ${e.nativeEvent.statusCode}`);
+            setStep('error');
+          }}
+          onError={(e) => {
+            setError(`Failed to load liveness page: ${e.nativeEvent.description}`);
+            setStep('error');
+          }}
+        />
+      </View>
     );
   }
 

@@ -100,6 +100,21 @@ export const api = {
   recentVerifications: () =>
     request<Array<{ id: string; peerName: string; verifiedAt: string; code: string }>>('/mobile/verification/recent'),
 
+  // Face Liveness
+  livenessStart: () =>
+    request<{ sessionId: string }>('/mobile/liveness/start', { method: 'POST' }),
+
+  livenessComplete: (sessionId: string) =>
+    request<{
+      livenessConfidence: number;
+      livenessPass: boolean;
+      faceMatchPassed: boolean;
+      faceMatchScore: number;
+    }>('/mobile/liveness/complete', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    }),
+
   // Dev-only bypass for Expo Go (passkey native module not available)
   passkeyRegisterBypass: () =>
     request<{ status: string }>('/mobile/passkey/register/bypass', { method: 'POST' }),
