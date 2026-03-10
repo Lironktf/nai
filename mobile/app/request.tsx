@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 type UserResult = {
   id: string;
   legalName: string;
+  userCode: string | null;
   photoUrl: string | null;
 };
 
@@ -51,7 +52,7 @@ export default function Request() {
           className="bg-surface border border-border rounded-xl px-4 py-4 text-ink text-base mb-6"
           value={query}
           onChangeText={handleSearch}
-          placeholder="Search by name..."
+          placeholder="Search by name, email, or code..."
           placeholderTextColor="#9CA3AF"
           autoFocus
         />
@@ -73,7 +74,10 @@ export default function Request() {
                   </Text>
                 )}
               </View>
-              <Text className="text-ink text-base font-medium flex-1">{item.legalName}</Text>
+              <View className="flex-1">
+                <Text className="text-ink text-base font-medium">{item.legalName}</Text>
+                {item.userCode ? <Text className="text-muted text-xs">{item.userCode}</Text> : null}
+              </View>
               <Text className="text-navy text-sm">Verify →</Text>
             </TouchableOpacity>
           )}

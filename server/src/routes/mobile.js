@@ -299,6 +299,46 @@ router.post('/passkey/assert/complete', requireAuth, async (req, res) => {
   return res.json({ ok: true });
 });
 
+// ── Face enrollment ───────────────────────────────────────────────────────────
+
+// POST /mobile/face/enroll
+// Stores the user's selfie as their reference profile photo.
+// Requires status = pending_video. Updates status to pending_passkey on success.
+router.post('/face/enroll', requireAuth, async (req, res) => {
+  const { userId } = req.user;
+  const { imageBase64 } = req.body;
+
+  if (!imageBase64) return res.status(400).json({ error: 'Missing imageBase64' });
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('status, profile_photo_s3_key')
+    .eq('id', userId)
+    .single();
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.status !== 'pending_video') {
+    return res.status(409).json({ error: 'Face enrollment not applicable for current status', status: user.status });
+  }
+
+  try {
+    const buffer = Buffer.from(imageBase64, 'base64');
+    const key = `profiles/${userId}/photo.jpg`;
+    await uploadToS3(key, buffer, 'image/jpeg');
+
+    await supabase
+      .from('users')
+      .update({ profile_photo_s3_key: key, status: 'pending_passkey' })
+      .eq('id', userId);
+
+    console.log(`[face/enroll] Stored face photo for user ${userId}`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[face/enroll] error:', err.message);
+    return res.status(500).json({ error: 'Failed to store face photo' });
+  }
+});
+
 // ── Face embedding check ──────────────────────────────────────────────────────
 
 // POST /mobile/face/check
@@ -353,16 +393,17 @@ router.get('/users/search', requireAuth, async (req, res) => {
 
   const { data: users } = await supabase
     .from('users')
-    .select('id, legal_name, profile_photo_s3_key')
+    .select('id, legal_name, email, user_code, profile_photo_s3_key')
     .eq('status', 'active')
     .neq('id', req.user.userId)
-    .or(`legal_name.ilike.%${q}%,email.ilike.%${q}%`)
+    .or(`legal_name.ilike.%${q}%,email.ilike.%${q}%,user_code.ilike.%${q}%`)
     .limit(20);
 
   const results = await Promise.all(
     (users ?? []).map(async (u) => ({
       id: u.id,
-      legalName: u.legal_name,
+      legalName: u.legal_name ?? u.email,
+      userCode: u.user_code,
       photoUrl: u.profile_photo_s3_key
         ? await getPresignedUrl(u.profile_photo_s3_key, 300).catch(() => null)
         : null,

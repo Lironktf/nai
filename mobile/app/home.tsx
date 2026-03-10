@@ -71,7 +71,7 @@ export default function Home() {
               const { sessionId, peerName, peerPhoto } = await api.testStartSession();
               router.push({
                 pathname: '/verify',
-                params: { sessionId, peerName, peerPhoto: peerPhoto ?? '', mode: 'outgoing', devBypass: '1' },
+                params: { sessionId, peerName, peerPhoto: peerPhoto ?? '', mode: 'outgoing' },
               });
             } catch (err: any) {
               alert(err.message || 'Failed to start test session');

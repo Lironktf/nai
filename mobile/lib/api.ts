@@ -26,8 +26,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Auth (reuses existing server endpoints)
-  register: (email: string, password: string) =>
-    request<{ token: string }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  register: (email: string, password: string, legalName?: string, phone?: string) =>
+    request<{ token: string }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, legalName, phone }) }),
 
   login: (email: string, password: string) =>
     request<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
@@ -38,6 +38,9 @@ export const api = {
   // KYC
   kycStatus: () =>
     request<{ status: string }>('/kyc/status'),
+
+  kycSync: () =>
+    request<{ status: string; synced: boolean }>('/kyc/sync', { method: 'POST' }),
 
   mobileKycStart: () =>
     request<{ inquiryId: string; sessionToken: string }>('/mobile/kyc/start', { method: 'POST' }),
@@ -63,6 +66,12 @@ export const api = {
     request<{ ok: boolean }>('/mobile/passkey/assert/complete', {
       method: 'POST',
       body: JSON.stringify({ sessionId, assertionResponse, faceScore }),
+    }),
+
+  faceEnroll: (imageBase64: string) =>
+    request<{ ok: boolean }>('/mobile/face/enroll', {
+      method: 'POST',
+      body: JSON.stringify({ imageBase64 }),
     }),
 
   // Face embedding check
