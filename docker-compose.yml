@@ -1,7 +1,7 @@
 version: '3.9'
 
 # No local Postgres — the database is hosted on Supabase.
-# This compose file runs only the server and client containers.
+# This compose file runs server + web client + meet side panel app.
 # For local Supabase (optional), run: supabase start
 
 services:
@@ -16,6 +16,7 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3001
+      - MEET_URL=http://localhost:5174
     volumes:
       - ./server/src:/app/src   # hot-reload in dev
     restart: unless-stopped
@@ -28,6 +29,19 @@ services:
       - '5173:5173'
     environment:
       - VITE_API_URL=http://localhost:3001
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  meet:
+    build:
+      context: ./meet
+      dockerfile: Dockerfile
+    ports:
+      - '5174:5174'
+    environment:
+      - VITE_API_URL=http://localhost:3001
+      - VITE_MEET_FALLBACK_PREFIX=NAI
     depends_on:
       - server
     restart: unless-stopped

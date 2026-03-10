@@ -43,9 +43,15 @@ export default function Home() {
           </TouchableOpacity>
         </View>
 
-        {/* Primary action */}
+        {/* Primary actions */}
+        <PrimaryButton
+          label="Join Meet Verification"
+          onPress={() => router.push('/meet/join')}
+        />
+
         <PrimaryButton
           label="Request Verification"
+          variant="outline"
           onPress={() => router.push('/request')}
         />
 
@@ -78,7 +84,7 @@ export default function Home() {
 
         {recent.length === 0 ? (
           <Text className="text-muted text-base text-center mt-8">
-            No verifications yet.{'\n'}Request one to get started.
+            No verifications yet.{"\n"}Request one to get started.
           </Text>
         ) : (
           <FlatList
