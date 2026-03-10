@@ -3,8 +3,8 @@ import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { requireAuth } from '../middleware/auth.js';
 import { io } from '../index.js';
-import { getPresignedUrl } from '../lib/s3.js';
-import { createInquiry } from '../lib/persona.js';
+import { getPresignedUrl, uploadToS3 } from '../lib/s3.js';
+import { createInquiry, fetchSelfiePhotoUrl } from '../lib/persona.js';
 import {
   generateEnrollmentChallenge,
   verifyEnrollmentChallenge,
@@ -12,7 +12,7 @@ import {
   verifyAuthChallenge,
   MOBILE_ORIGIN,
 } from '../lib/webauthn.js';
-import { detectFaceFromBase64, detectFaceFromUrl, verifyFaces } from '../lib/azure-face.js';
+import { compareFaces } from '../lib/rekognition.js';
 
 const router = Router();
 
@@ -303,8 +303,8 @@ router.post('/passkey/assert/complete', requireAuth, async (req, res) => {
 
 // POST /mobile/face/check
 // Accepts a base64 JPEG from the live camera frame.
-// Compares it against the user's stored profile photo via Azure Face API.
-// Returns { passed: boolean, score: number }.
+// Compares it against the user's stored profile photo via AWS Rekognition.
+// Returns { passed: boolean, score: number } where score is 0–100.
 router.post('/face/check', requireAuth, async (req, res) => {
   const { userId } = req.user;
   const { sessionId, imageBase64 } = req.body;
@@ -325,28 +325,18 @@ router.post('/face/check', requireAuth, async (req, res) => {
   }
 
   try {
-    // Generate a short-lived pre-signed URL for the reference photo.
-    const refPhotoUrl = await getPresignedUrl(user.profile_photo_s3_key, 120);
-
-    // Detect faces in parallel.
-    const [liveFaceId, refFaceId] = await Promise.all([
-      detectFaceFromBase64(imageBase64),
-      detectFaceFromUrl(refPhotoUrl),
-    ]);
-
-    const { confidence } = await verifyFaces(liveFaceId, refFaceId);
-    const passed = confidence >= 0.85;
+    const { passed, score } = await compareFaces(user.profile_photo_s3_key, imageBase64);
 
     // Record the face match score on the session if provided.
     if (sessionId) {
       await supabase
         .from('verification_sessions')
-        .update({ face_match_score: confidence })
+        .update({ face_match_score: score })
         .eq('id', sessionId)
         .or(`requester_id.eq.${userId},recipient_id.eq.${userId}`);
     }
 
-    return res.json({ passed, score: confidence });
+    return res.json({ passed, score });
   } catch (err) {
     console.error('[face/check] error:', err.message);
     return res.status(422).json({ error: err.message, passed: false, score: 0 });
@@ -409,7 +399,7 @@ router.post('/verification/request', requireAuth, async (req, res) => {
       requester_id: userId,
       recipient_id: recipientId,
       state: 'pending_acceptance',
-      channel: 'mobile',
+      channel: 'app',
     })
     .select('id')
     .single();
@@ -560,7 +550,77 @@ router.get('/verification/recent', requireAuth, async (req, res) => {
 // ── Dev-only test helpers ─────────────────────────────────────────────────────
 // These routes are disabled in production (NODE_ENV=production).
 // They allow a single developer to run through the full verification state
-// machine without needing two real devices, Azure Face API, or a native build.
+// machine without needing two real devices, or a native build.
+
+// POST /mobile/test/sync-profile-photo
+// Re-fetches the Persona selfie for the current user and uploads it to S3.
+// Use this if the KYC webhook fired but the S3 upload failed (e.g. bucket didn't exist yet).
+router.post('/test/sync-profile-photo', requireAuth, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).end();
+
+  const { userId } = req.user;
+
+  const { data: iv } = await supabase
+    .from('identity_verifications')
+    .select('persona_inquiry_id')
+    .eq('user_id', userId)
+    .eq('status', 'approved')
+    .order('reviewed_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!iv?.persona_inquiry_id) {
+    return res.status(404).json({ error: 'No approved KYC inquiry found for this user' });
+  }
+
+  const selfieUrl = await fetchSelfiePhotoUrl(iv.persona_inquiry_id);
+  if (!selfieUrl) {
+    return res.status(422).json({ error: `Persona returned no selfie URL for inquiry ${iv.persona_inquiry_id}` });
+  }
+
+  const imgRes = await fetch(selfieUrl);
+  if (!imgRes.ok) {
+    return res.status(502).json({ error: `Failed to download selfie from Persona (${imgRes.status})` });
+  }
+
+  const buffer = Buffer.from(await imgRes.arrayBuffer());
+  const key = `profiles/${userId}/photo.jpg`;
+  await uploadToS3(key, buffer, 'image/jpeg');
+  await supabase.from('users').update({ profile_photo_s3_key: key }).eq('id', userId);
+
+  console.log(`[dev] Synced profile photo for user ${userId} → ${key}`);
+  return res.json({ ok: true, key });
+});
+
+// POST /mobile/passkey/register/bypass
+// DEV ONLY: skips WebAuthn registration and marks the user as active.
+// Used in Expo Go where the passkey native module is not available.
+router.post('/passkey/register/bypass', requireAuth, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).end();
+
+  const { userId } = req.user;
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('status')
+    .eq('id', userId)
+    .single();
+
+  if (!['pending_video', 'pending_passkey'].includes(user?.status)) {
+    return res.status(409).json({ error: 'Bypass not applicable for current status', status: user?.status });
+  }
+
+  await supabase.from('users').update({ status: 'active' }).eq('id', userId);
+
+  await supabase.from('audit_logs').insert({
+    user_id: userId,
+    event_type: 'MOBILE_PASSKEY_BYPASS_DEV',
+    ip_address: req.ip,
+    user_agent: req.headers['user-agent'],
+  });
+
+  return res.json({ status: 'active' });
+});
 
 // POST /mobile/test/start-session
 // Creates a session where the caller is the requester and Alice (seed user) is

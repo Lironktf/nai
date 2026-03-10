@@ -112,13 +112,29 @@ export async function fetchSelfiePhotoUrl(inquiryId) {
   if (!selfie) return null;
 
   const attrs = selfie.attributes ?? {};
-  // Persona returns selfie photos in various attribute shapes depending on template version.
-  return (
-    attrs.selfiePhotoUrl ??
-    attrs.photoUrls?.[0] ??
-    attrs.capturedPhotoUrl ??
-    null
-  );
+
+  // Persona may return the photo as a direct URL string OR as a nested file
+  // relationship object { data: { attributes: { url } } }. Extract either.
+  function extractUrl(val) {
+    if (typeof val === 'string' && val.startsWith('http')) return val;
+    if (val?.data?.attributes?.url) return val.data.attributes.url;
+    if (val?.url) return val.url;
+    return null;
+  }
+
+  const url =
+    extractUrl(attrs.selfiePhotoUrl) ??
+    extractUrl(attrs.photoUrls?.[0]) ??
+    extractUrl(attrs.capturedPhotoUrl) ??
+    extractUrl(attrs.centerPhotoUrl) ??
+    null;
+
+  if (!url) {
+    console.warn('[persona] fetchSelfiePhotoUrl: no URL found. selfie attrs keys:', Object.keys(attrs));
+    console.warn('[persona] selfie attrs sample:', JSON.stringify(attrs).slice(0, 500));
+  }
+
+  return url;
 }
 
 // Verify the Persona-Signature header using HMAC-SHA256.

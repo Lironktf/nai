@@ -1,29 +1,21 @@
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Animated } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useEffect } from 'react';
-import Animated, {
-  useSharedValue,
-  withSpring,
-  withDelay,
-  withTiming,
-  useAnimatedStyle,
-} from 'react-native-reanimated';
+import { useEffect, useRef } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { PrimaryButton } from '../components/PrimaryButton';
 
 export default function Confirmed() {
   const { peerName, code } = useLocalSearchParams<{ peerName: string; code: string }>();
-  const scale = useSharedValue(0);
-  const opacity = useSharedValue(0);
+  const scale = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    scale.value = withSpring(1, { damping: 12, stiffness: 200 });
-    opacity.value = withDelay(300, withTiming(1, { duration: 400 }));
+    Animated.spring(scale, { toValue: 1, damping: 12, stiffness: 200, useNativeDriver: true }).start();
+    Animated.delay(300).start(() =>
+      Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }).start()
+    );
   }, []);
-
-  const checkStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  const contentStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   async function copyCode() {
     await Clipboard.setStringAsync(code);
@@ -35,13 +27,13 @@ export default function Confirmed() {
         <View className="items-center gap-6">
           {/* Checkmark */}
           <Animated.View
-            style={checkStyle}
+            style={{ transform: [{ scale }] }}
             className="w-24 h-24 rounded-full bg-success items-center justify-center"
           >
             <Text className="text-white text-5xl">✓</Text>
           </Animated.View>
 
-          <Animated.View style={contentStyle} className="items-center gap-2">
+          <Animated.View style={{ opacity }} className="items-center gap-2">
             <Text className="text-ink text-3xl font-bold text-center">{peerName}</Text>
             <Text className="text-success text-lg font-semibold">Verified</Text>
             <Text className="text-muted text-sm mt-1">
@@ -50,7 +42,7 @@ export default function Confirmed() {
           </Animated.View>
 
           {/* Verification code */}
-          <Animated.View style={contentStyle} className="mt-4 items-center gap-2">
+          <Animated.View style={{ opacity }} className="mt-4 items-center gap-2">
             <Text className="text-muted text-xs uppercase tracking-widest">Verification Code</Text>
             <TouchableOpacity
               onPress={copyCode}

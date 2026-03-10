@@ -7,10 +7,12 @@
     "start": "node --env-file ../.env src/index.js"
   },
   "dependencies": {
-    "@simplewebauthn/server": "^9.0.3",
-    "@supabase/supabase-js": "^2.43.4",
+    "@aws-sdk/client-rekognition": "^3.1005.0",
     "@aws-sdk/client-s3": "^3.600.0",
     "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "@qdrant/js-client-rest": "^1.9.0",
+    "@simplewebauthn/server": "^9.0.3",
+    "@supabase/supabase-js": "^2.43.4",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "express": "^4.19.2",
@@ -19,8 +21,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.0",
     "socket.io": "^4.7.5",
-    "zod": "^3.23.8",
-    "@qdrant/js-client-rest": "^1.9.0"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

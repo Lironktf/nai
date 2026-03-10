@@ -9,6 +9,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers as Record<string, string> ?? {}),
     },
@@ -98,6 +99,13 @@ export const api = {
 
   recentVerifications: () =>
     request<Array<{ id: string; peerName: string; verifiedAt: string; code: string }>>('/mobile/verification/recent'),
+
+  // Dev-only bypass for Expo Go (passkey native module not available)
+  passkeyRegisterBypass: () =>
+    request<{ status: string }>('/mobile/passkey/register/bypass', { method: 'POST' }),
+
+  syncProfilePhoto: () =>
+    request<{ ok: boolean; key: string }>('/mobile/test/sync-profile-photo', { method: 'POST' }),
 
   // Dev-only test helpers (blocked in production)
   testStartSession: () =>

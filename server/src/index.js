@@ -11,9 +11,11 @@ import kycRouter from './routes/kyc.js';
 import enrollRouter from './routes/enroll.js';
 import adminRouter from './routes/admin.js';
 import mobileRouter from './routes/mobile.js';
-import { ensureCollection } from './lib/qdrant.js';
 
 const app = express();
+// Trust the first proxy (ngrok / reverse proxy) so express-rate-limit
+// reads the real client IP from X-Forwarded-For instead of erroring.
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
 
 const CORS_ORIGINS = [
@@ -35,7 +37,8 @@ app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
 // Raw body MUST be registered before express.json().
 // The webhook route needs the raw Buffer to verify Persona's HMAC signature.
 app.use('/kyc/webhook', express.raw({ type: '*/*' }));
-app.use(express.json());
+// 10 MB limit to accommodate base64-encoded camera frames for face verification.
+app.use(express.json({ limit: '10mb' }));
 
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -81,7 +84,4 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, async () => {
   console.log(`TrustHandshake server running on port ${PORT}`);
-  await ensureCollection().catch((err) =>
-    console.warn('[Qdrant] Could not ensure collection (is Qdrant running?):', err.message)
-  );
 });

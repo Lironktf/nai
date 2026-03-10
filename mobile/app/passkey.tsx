@@ -4,19 +4,35 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { registerPasskey } from '../lib/passkey';
+import { api } from '../lib/api';
 
 export default function PasskeyScreen() {
-  const [step, setStep] = useState<'idle' | 'registering' | 'error'>('idle');
+  const [step, setStep] = useState<'idle' | 'registering' | 'bypassing' | 'error'>('idle');
   const [error, setError] = useState('');
+  const [showBypass, setShowBypass] = useState(false);
 
   async function handleRegister() {
     setStep('registering');
     setError('');
+    setShowBypass(false);
     try {
       await registerPasskey();
       router.replace('/home');
     } catch (err: any) {
-      setError(err.message || 'Passkey registration failed');
+      setError(err?.message || 'Passkey not available — use dev bypass below.');
+      if (__DEV__) setShowBypass(true);
+      setStep('error');
+    }
+  }
+
+  async function handleBypass() {
+    setStep('bypassing');
+    setError('');
+    try {
+      await api.passkeyRegisterBypass();
+      router.replace('/home');
+    } catch (err: any) {
+      setError(err.message || 'Bypass failed');
       setStep('error');
     }
   }
@@ -25,7 +41,6 @@ export default function PasskeyScreen() {
     <SafeAreaView className="flex-1 bg-bg">
       <View className="flex-1 px-8 pb-12 justify-between">
         <View className="flex-1 items-center justify-center">
-          {/* Face icon */}
           <View className="w-24 h-24 rounded-full bg-surface items-center justify-center mb-8">
             <Text className="text-5xl">🔒</Text>
           </View>
@@ -43,11 +58,21 @@ export default function PasskeyScreen() {
           )}
         </View>
 
-        <PrimaryButton
-          label={step === 'registering' ? 'Registering...' : 'Register Face ID'}
-          onPress={handleRegister}
-          disabled={step === 'registering'}
-        />
+        <View className="gap-3">
+          <PrimaryButton
+            label={step === 'registering' ? 'Registering...' : 'Register Face ID'}
+            onPress={handleRegister}
+            disabled={step === 'registering' || step === 'bypassing'}
+          />
+          {showBypass && __DEV__ && (
+            <PrimaryButton
+              label={step === 'bypassing' ? 'Activating...' : 'Skip — Dev bypass (Expo Go)'}
+              variant="ghost"
+              onPress={handleBypass}
+              disabled={step === 'bypassing'}
+            />
+          )}
+        </View>
       </View>
     </SafeAreaView>
   );

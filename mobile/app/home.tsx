@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { api } from '../lib/api';
+import { clearToken } from '../lib/storage';
 
 type RecentVerification = {
   id: string;
@@ -37,6 +38,9 @@ export default function Home() {
               </View>
             </View>
           </View>
+          <TouchableOpacity onPress={async () => { await clearToken(); router.replace('/'); }}>
+            <Text className="text-muted text-sm">Sign out</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Primary action */}
@@ -45,7 +49,14 @@ export default function Home() {
           onPress={() => router.push('/request')}
         />
 
-        {/* Dev-only test button */}
+        {/* Dev-only test buttons */}
+        {__DEV__ && (
+          <PrimaryButton
+            label="Test Face Match (Rekognition)"
+            variant="ghost"
+            onPress={() => router.push('/test-face')}
+          />
+        )}
         <PrimaryButton
           label="Test Verification (Dev)"
           variant="ghost"
