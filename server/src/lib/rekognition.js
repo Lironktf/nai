@@ -28,8 +28,6 @@ export async function compareFaces(profilePhotoS3Key, base64Jpeg) {
     QualityFilter: 'AUTO',
   });
 
-  console.log('[rekognition] calling CompareFaces — bucket:', process.env.S3_BUCKET_NAME, 'key:', profilePhotoS3Key, 'region:', process.env.AWS_REGION ?? 'us-east-1');
-
   const timeout = new Promise((_, reject) =>
     setTimeout(() => reject(new Error('Rekognition request timed out after 15s')), 15_000)
   );

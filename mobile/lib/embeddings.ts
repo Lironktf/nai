@@ -2,7 +2,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { api } from './api';
 
 // Capture a selfie from a mounted expo-camera CameraView ref and compare it
-// against the user's stored profile photo via the server's Azure Face API.
+// against the user's stored profile photo via AWS Rekognition CompareFaces.
 // Returns { passed, score }.
 //
 // Usage: call this with the ref returned by useRef<CameraView>() in the
@@ -21,7 +21,7 @@ export async function captureAndCheckFace(
   ]);
   if (!raw.uri) throw new Error('Camera did not return a photo URI');
 
-  // Resize to 640px wide and compress to keep payload under ~80KB for ngrok.
+  // Resize to 640px wide — sufficient for Rekognition and keeps payload small.
   const resized = await ImageManipulator.manipulateAsync(
     raw.uri,
     [{ resize: { width: 640 } }],
