@@ -64,4 +64,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ enrollmentVideoId, decision, rejectReason }),
     }),
+
+  telegramCompleteLink: (token) =>
+    request('/telegram/complete-link', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
 };
