@@ -49,18 +49,11 @@ export default function Kyc() {
     pollRef.current = setInterval(async () => {
       try {
         const { status } = await api.kycStatus();
-        if (status === 'pending_video') {
+        if (['pending_video', 'pending_passkey', 'active'].includes(status)) {
           if (advancedRef.current) return;
           advancedRef.current = true;
           clearInterval(pollRef.current!);
-          router.replace('/face-enroll');
-          return;
-        }
-        if (['pending_passkey', 'active'].includes(status)) {
-          if (advancedRef.current) return;
-          advancedRef.current = true;
-          clearInterval(pollRef.current!);
-          router.replace('/passkey');
+          router.replace('/face-verify');
           return;
         }
       } catch {
@@ -83,14 +76,9 @@ export default function Kyc() {
     // This handles the sandbox case where inquiry.approved webhook never fires.
     try {
       const { status } = await api.kycSync();
-      if (status === 'pending_video') {
+      if (['pending_video', 'pending_passkey', 'active'].includes(status)) {
         advancedRef.current = true;
-        router.replace('/face-enroll');
-        return;
-      }
-      if (['pending_passkey', 'active'].includes(status)) {
-        advancedRef.current = true;
-        router.replace('/passkey');
+        router.replace('/face-verify');
         return;
       }
     } catch {

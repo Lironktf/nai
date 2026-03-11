@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { api } from '../lib/api';
-import { assertPasskey } from '../lib/passkey';
 import { captureAndCheckFace } from '../lib/embeddings';
 
 type VerifyStep =
@@ -91,7 +90,9 @@ export default function Verify() {
         setStep('error');
         return;
       }
-      await assertPasskey(sessionId);
+      // DEV BYPASS: skip passkey assertion until WebAuthn enrollment is wired up.
+      // In production, swap this back to: await assertPasskey(sessionId);
+      await api.testAssertBypass(sessionId);
       startPollingForCompletion();
     } catch (err: any) {
       setError(err.message || 'Authentication failed');

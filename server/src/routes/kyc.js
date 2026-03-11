@@ -215,10 +215,26 @@ async function handleVerificationEvent(eventName, verification) {
 async function handleInquiryEvent(eventName, inquiry) {
   const inquiryId = inquiry.id;
   const attrs = inquiry.attributes ?? {};
-  const userId = attrs.referenceId ?? attrs.reference_id ?? attrs['reference-id'];
+  const meta = inquiry.meta ?? {};
+
+  // Persona may use camelCase, snake_case, or kebab-case depending on API version / webhook config.
+  // Also check meta object as some Persona versions put reference-id there.
+  const userId =
+    attrs.referenceId ??
+    attrs.reference_id ??
+    attrs['reference-id'] ??
+    meta.referenceId ??
+    meta.reference_id ??
+    meta['reference-id'] ??
+    null;
+
   const personaStatus = attrs.status;
 
-  console.log(`[KYC inquiry] id=${inquiryId} userId=${userId} status=${personaStatus} attrs_keys=${Object.keys(attrs).join(',')}`);
+  console.log(`[KYC inquiry] id=${inquiryId} userId=${userId} status=${personaStatus} attrs_keys=${Object.keys(attrs).join(',')} meta_keys=${Object.keys(meta).join(',')}`);
+  if (!userId) {
+    // Dump a truncated snapshot so we can identify the correct field name
+    console.log('[KYC inquiry] FULL inquiry snapshot:', JSON.stringify(inquiry).slice(0, 800));
+  }
 
   if (!userId || !inquiryId) return;
 

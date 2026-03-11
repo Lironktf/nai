@@ -66,6 +66,24 @@ app.use(globalLimiter);
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+// ── Apple App Site Association (passkeys / universal links) ───────────────────
+// iOS requires this file to verify the app-domain association before creating
+// a passkey. The bundle ID must match app.json's ios.bundleIdentifier.
+// Replace XXXXXXXXXX with your 10-character Apple Developer Team ID.
+app.get('/.well-known/apple-app-site-association', (_req, res) => {
+  const teamId = process.env.APPLE_TEAM_ID;
+  if (!teamId) {
+    console.warn('[AASA] APPLE_TEAM_ID env var not set — passkey domain verification will fail on real devices');
+  }
+  const bundleId = process.env.APP_BUNDLE_ID || 'com.trusthandshake.app';
+  res.setHeader('Content-Type', 'application/json');
+  res.json({
+    webcredentials: {
+      apps: teamId ? [`${teamId}.${bundleId}`] : [],
+    },
+  });
+});
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/auth', authRouter);
 app.use('/kyc', kycRouter);

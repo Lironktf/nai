@@ -12,6 +12,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.trusthandshake.app",
+      "associatedDomains": ["webcredentials:nai.lironkatsif.com"],
       "infoPlist": {
         "NSCameraUsageDescription": "Used to capture a live selfie for identity verification.",
         "NSFaceIDUsageDescription": "Used to verify your identity before a handshake."

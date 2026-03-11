@@ -339,6 +339,61 @@ router.post('/face/enroll', requireAuth, async (req, res) => {
   }
 });
 
+// POST /mobile/face/activate-bypass
+// DEV BYPASS: compares a live selfie against the user's KYC profile photo via
+// Rekognition. If the face matches (score >= 85%), the account is activated.
+// This replaces passkey registration until WebAuthn is fully wired up.
+// Blocked in production.
+router.post('/face/activate-bypass', requireAuth, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).end();
+
+  const { userId } = req.user;
+  const { imageBase64 } = req.body;
+
+  if (!imageBase64) return res.status(400).json({ error: 'Missing imageBase64' });
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('status, profile_photo_s3_key')
+    .eq('id', userId)
+    .single();
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (!['pending_video', 'pending_passkey'].includes(user.status)) {
+    return res.status(409).json({
+      error: 'Face activation not applicable for current status',
+      status: user.status,
+    });
+  }
+
+  if (!user.profile_photo_s3_key) {
+    return res.status(422).json({
+      error: 'No KYC reference photo found. Complete identity verification first.',
+    });
+  }
+
+  try {
+    const { passed, score } = await compareFaces(user.profile_photo_s3_key, imageBase64);
+    console.log(`[face/activate-bypass] user=${userId} score=${score.toFixed(1)} passed=${passed}`);
+
+    if (passed) {
+      await supabase.from('users').update({ status: 'active' }).eq('id', userId);
+      await supabase.from('audit_logs').insert({
+        user_id: userId,
+        event_type: 'FACE_BYPASS_ACTIVATED',
+        metadata: { face_match_score: score },
+        ip_address: req.ip,
+      });
+    }
+
+    return res.json({ passed, score });
+  } catch (err) {
+    console.error('[face/activate-bypass] error:', err.message);
+    return res.status(422).json({ error: err.message, passed: false, score: 0 });
+  }
+});
+
 // ── Face embedding check ──────────────────────────────────────────────────────
 
 // POST /mobile/face/check

@@ -74,6 +74,13 @@ export const api = {
       body: JSON.stringify({ imageBase64 }),
     }),
 
+  // DEV BYPASS: compare face against KYC photo and activate account if it matches
+  faceActivateBypass: (imageBase64: string) =>
+    request<{ passed: boolean; score: number }>('/mobile/face/activate-bypass', {
+      method: 'POST',
+      body: JSON.stringify({ imageBase64 }),
+    }),
+
   // Face embedding check
   checkFaceEmbedding: (sessionId: string, imageBase64: string) =>
     request<{ passed: boolean; score: number }>('/mobile/face/check', {
