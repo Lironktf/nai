@@ -204,6 +204,38 @@ router.post('/session/start', requireAuth, async (req, res) => {
   });
 });
 
+// GET /meet/session/status?code=XXX  (no auth — read-only for side panel display)
+// Returns active session + participant verification states for a given meeting code.
+router.get('/session/status', async (req, res) => {
+  const code = canonicalMeetingCode(String(req.query.code || ''));
+  if (!code || code.length < 3) return res.status(400).json({ error: 'Missing or invalid code' });
+
+  const { data: session } = await supabase
+    .from('meeting_sessions')
+    .select('id, meeting_code, status, reauth_interval_minutes')
+    .eq('meeting_code', code)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (!session) return res.status(404).json({ error: 'No active session found for this code' });
+
+  await expireStaleVerifiedParticipants(session.id);
+
+  const { data: participants } = await supabase
+    .from('meeting_participants')
+    .select('id, display_name, status, last_verified_at, verification_expires_at, failure_reason, users(legal_name, email)')
+    .eq('meeting_session_id', session.id)
+    .order('updated_at', { ascending: false });
+
+  return res.json({
+    sessionId: session.id,
+    meetingCode: session.meeting_code,
+    status: session.status,
+    reauthIntervalMinutes: session.reauth_interval_minutes,
+    participants: (participants ?? []).map(mapParticipantRow),
+  });
+});
+
 // GET /meet/session/by-code?code=XXX
 // Find the active session for a given meeting code (host only).
 router.get('/session/by-code', requireAuth, async (req, res) => {
