@@ -14,6 +14,7 @@ import kycRouter from './routes/kyc.js';
 import enrollRouter from './routes/enroll.js';
 import adminRouter from './routes/admin.js';
 import mobileRouter from './routes/mobile.js';
+import telegramRouter from './routes/telegram.js';
 import meetRouter from './routes/meet.js';
 import { supabase } from './db/supabase.js';
 
@@ -95,6 +96,7 @@ app.use('/kyc', kycRouter);
 app.use('/enroll', enrollRouter);
 app.use('/admin', adminRouter);
 app.use('/mobile', mobileRouter);
+app.use('/telegram', telegramRouter);
 app.use('/meet', meetRouter);
 
 // ── Liveness page (built client static files) ─────────────────────────────────

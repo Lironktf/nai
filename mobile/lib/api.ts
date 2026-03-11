@@ -227,4 +227,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ sessionId }),
     }),
+
+  // Telegram integration
+  telegramCompleteLink: (token: string) =>
+    request<{ ok: boolean }>('/telegram/complete-link', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
 };

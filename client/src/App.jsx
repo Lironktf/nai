@@ -56,6 +56,14 @@ export default function App() {
 
   function handleAuthSuccess(token) {
     localStorage.setItem('th_token', token);
+    
+    // Check if we have a pending Telegram linking operation
+    const pendingTgToken = sessionStorage.getItem('pending_tg_token');
+    if (pendingTgToken) {
+      window.location.href = `/auth/telegram?token=${pendingTgToken}`;
+      return;
+    }
+
     const payload = decodeJwt(token);
     if (payload?.isAdmin) {
       setScreen('admin');
