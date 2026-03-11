@@ -182,6 +182,20 @@ export const api = {
       body: JSON.stringify(payload ?? { status: 'verified' }),
     }),
 
+  livenessStart: () =>
+    request<{ sessionId: string }>('/mobile/liveness/start', { method: 'POST' }),
+
+  livenessComplete: (livenessSessionId: string) =>
+    request<{
+      livenessConfidence: number;
+      livenessPass: boolean;
+      faceMatchPassed: boolean;
+      faceMatchScore: number;
+    }>('/mobile/liveness/complete', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: livenessSessionId }),
+    }),
+
   meetStartSession: (meetingCode: string, reauthIntervalMinutes?: number) =>
     request<{
       sessionId: string;

@@ -204,6 +204,33 @@ router.post('/session/start', requireAuth, async (req, res) => {
   });
 });
 
+// GET /meet/session/by-code?code=XXX
+// Find the active session for a given meeting code (host only).
+router.get('/session/by-code', requireAuth, async (req, res) => {
+  const code = canonicalMeetingCode(String(req.query.code || ''));
+  if (!code || code.length < 3) return res.status(400).json({ error: 'Missing or invalid code' });
+
+  const { data: session } = await supabase
+    .from('meeting_sessions')
+    .select('id, meeting_code, host_user_id, status, reauth_interval_minutes, started_at, ended_at')
+    .eq('meeting_code', code)
+    .eq('status', 'active')
+    .eq('host_user_id', req.user.userId)
+    .maybeSingle();
+
+  if (!session) return res.status(404).json({ error: 'No active session found for this code' });
+
+  return res.json({
+    id: session.id,
+    sessionId: session.id,
+    meetingCode: session.meeting_code,
+    status: session.status,
+    reauthIntervalMinutes: session.reauth_interval_minutes,
+    startedAt: session.started_at,
+    endedAt: session.ended_at,
+  });
+});
+
 // GET /meet/session/:sessionId
 router.get('/session/:sessionId', requireAuth, async (req, res) => {
   const { sessionId } = req.params;

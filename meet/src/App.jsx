@@ -36,9 +36,19 @@ export default function App() {
   }, [participants, sdkRoster]);
 
   useEffect(() => {
-    getMeetingContext().then((ctx) => {
+    getMeetingContext().then(async (ctx) => {
       setMeetingCode(ctx.meetingCode);
       setMeetingCodeSource(ctx.source);
+      // Auto-attach if a session already exists for this code (e.g. host started from phone).
+      if (hasToken) {
+        try {
+          const existing = await api.findSessionByCode(ctx.meetingCode);
+          setSession(existing);
+          await Promise.all([refreshParticipants(existing.sessionId || existing.id), refreshEvents(existing.sessionId || existing.id)]);
+        } catch {
+          // No existing session — host will start one manually.
+        }
+      }
     });
     const rosterTimer = setInterval(async () => {
       const roster = await getMeetingRoster();
@@ -71,9 +81,11 @@ export default function App() {
     const id = session.sessionId || session.id;
     const countdownTimer = setInterval(() => setParticipants((prev) => [...prev]), 1000);
     const pollTimer = setInterval(() => {
-      refreshParticipants(id).catch(() => {});
+      refreshParticipants(id).catch((err) => {
+        if (err?.status === 401) setError('Auth token expired — paste a new token and save.');
+      });
       refreshEvents(id).catch(() => {});
-    }, 5000);
+    }, 2000);
     return () => { clearInterval(countdownTimer); clearInterval(pollTimer); };
   }, [session]);
 
@@ -85,6 +97,13 @@ export default function App() {
     const data = await api.getEvents(sessionId, 25);
     setEvents(data);
   }
+  async function attachToSession(sessionId) {
+    const data = await api.getSession(sessionId);
+    const s = { ...data, sessionId: data.id };
+    setSession(s);
+    await Promise.all([refreshParticipants(s.sessionId), refreshEvents(s.sessionId)]);
+  }
+
   async function startSession() {
     setError('');
     if (!hasToken) { setError('Paste your token first.'); return; }
@@ -93,7 +112,18 @@ export default function App() {
       const started = await api.startSession(meetingCode, reauthMinutes);
       setSession(started);
       await Promise.all([refreshParticipants(started.sessionId), refreshEvents(started.sessionId)]);
-    } catch (err) { setError(err.message || 'Failed to start session'); }
+    } catch (err) {
+      // Session already started (e.g. host created it from the mobile app) — attach to it.
+      if (err?.status === 409 && err?.data?.sessionId) {
+        try {
+          await attachToSession(err.data.sessionId);
+        } catch (attachErr) {
+          setError(attachErr.message || 'Failed to attach to existing session');
+        }
+      } else {
+        setError(err.message || 'Failed to start session');
+      }
+    }
     finally { setBusy(false); }
   }
   async function verifyAll() {

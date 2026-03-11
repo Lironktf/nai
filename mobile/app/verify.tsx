@@ -2,17 +2,17 @@ import { View, Text, Image, ActivityIndicator, Animated } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import WebView from 'react-native-webview';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { api } from '../lib/api';
-import { captureAndCheckFace } from '../lib/embeddings';
 
 type VerifyStep =
   | 'waiting'
   | 'incoming'
   | 'auth'
-  | 'face_check'   // camera open, waiting for user to capture
-  | 'checking'     // server evaluating face match
+  | 'liveness_loading'
+  | 'liveness_webview'
+  | 'checking'
   | 'peer_pending'
   | 'error';
 
@@ -26,8 +26,7 @@ export default function Verify() {
 
   const [step, setStep] = useState<VerifyStep>(mode === 'incoming' ? 'incoming' : 'waiting');
   const [error, setError] = useState('');
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
+  const [livenessSessionId, setLivenessSessionId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulse = useRef(new Animated.Value(1)).current;
 
@@ -68,30 +67,30 @@ export default function Verify() {
     router.replace('/home');
   }
 
-  async function handleAuth() {
+  async function handleStartLiveness() {
     setError('');
-    if (!permission?.granted) {
-      const { granted } = await requestPermission();
-      if (!granted) {
-        setError('Camera permission is required for face verification.');
-        setStep('error');
-        return;
-      }
+    setStep('liveness_loading');
+    try {
+      const { sessionId: id } = await api.livenessStart();
+      setLivenessSessionId(id);
+      setStep('liveness_webview');
+    } catch (err: any) {
+      setError(err.message || 'Failed to start liveness check');
+      setStep('error');
     }
-    setStep('face_check');
   }
 
-  async function handleCapture() {
+  async function handleLivenessComplete() {
+    if (!livenessSessionId) return;
     setStep('checking');
     try {
-      const { passed, score } = await captureAndCheckFace(cameraRef.current!, sessionId);
-      if (!passed) {
-        setError(`Face does not match your profile (score: ${score.toFixed(1)}%). Please try again in better lighting.`);
+      const result = await api.livenessComplete(livenessSessionId);
+      if (!result.livenessPass || !result.faceMatchPassed) {
+        setError(`Face verification failed (score: ${result.faceMatchScore?.toFixed(1) ?? 0}%). Please retry in better lighting.`);
         setStep('error');
         return;
       }
       // DEV BYPASS: skip passkey assertion until WebAuthn enrollment is wired up.
-      // In production, swap this back to: await assertPasskey(sessionId);
       await api.testAssertBypass(sessionId);
       startPollingForCompletion();
     } catch (err: any) {
@@ -118,6 +117,42 @@ export default function Verify() {
   }
 
   const pulseStyle = { opacity: pulse };
+
+  if (step === 'liveness_webview' && livenessSessionId) {
+    const livenessUrl =
+      `${process.env.EXPO_PUBLIC_API_URL}/liveness` +
+      `?sessionId=${livenessSessionId}` +
+      `&identityPoolId=${encodeURIComponent(process.env.EXPO_PUBLIC_COGNITO_IDENTITY_POOL_ID ?? '')}` +
+      `&region=${process.env.EXPO_PUBLIC_AWS_REGION ?? 'us-east-1'}`;
+
+    return (
+      <View style={{ flex: 1 }}>
+        <WebView
+          source={{ uri: livenessUrl }}
+          style={{ flex: 1 }}
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          onMessage={(event) => {
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              if (data.done) handleLivenessComplete();
+              else if (data.error) {
+                setError(data.error);
+                setStep('error');
+              }
+            } catch {
+              setError('Invalid liveness callback');
+              setStep('error');
+            }
+          }}
+          onError={(e) => {
+            setError(`Liveness page failed: ${e.nativeEvent.description}`);
+            setStep('error');
+          }}
+        />
+      </View>
+    );
+  }
 
   if (step === 'waiting') {
     return (
@@ -161,32 +196,19 @@ export default function Verify() {
             <Text className="text-ink text-2xl font-bold text-center">{peerName}</Text>
             <Text className="text-muted text-sm text-center">Verified identity</Text>
           </View>
-          <PrimaryButton label="Verify with Face ID" onPress={handleAuth} />
+          <PrimaryButton label="Verify with Face Liveness" onPress={handleStartLiveness} />
         </View>
       </SafeAreaView>
     );
   }
 
-  if (step === 'face_check') {
-    return (
-      <View style={{ flex: 1 }}>
-        <CameraView ref={cameraRef} style={{ flex: 1 }} facing="front" />
-        <View className="absolute bottom-12 left-0 right-0 items-center px-8 gap-4">
-          <Text className="text-white text-base font-semibold text-center"
-            style={{ textShadowColor: '#000', textShadowRadius: 4 }}>
-            Position your face in frame
-          </Text>
-          <PrimaryButton label="Capture" onPress={handleCapture} />
-        </View>
-      </View>
-    );
-  }
-
-  if (step === 'checking') {
+  if (step === 'liveness_loading' || step === 'checking') {
     return (
       <SafeAreaView className="flex-1 bg-bg items-center justify-center px-8 gap-4">
         <ActivityIndicator size="large" color="#1A3A5C" />
-        <Text className="text-ink text-xl font-semibold text-center">Checking identity...</Text>
+        <Text className="text-ink text-xl font-semibold text-center">
+          {step === 'liveness_loading' ? 'Preparing liveness challenge...' : 'Checking identity...'}
+        </Text>
       </SafeAreaView>
     );
   }

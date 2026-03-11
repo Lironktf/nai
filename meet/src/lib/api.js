@@ -38,6 +38,7 @@ export const api = {
     }),
 
   getSession: (sessionId) => request(`/meet/session/${sessionId}`),
+  findSessionByCode: (code) => request(`/meet/session/by-code?code=${encodeURIComponent(code)}`),
   getParticipants: (sessionId) => request(`/meet/session/${sessionId}/participants`),
   getEvents: (sessionId, limit = 40) => request(`/meet/session/${sessionId}/events?limit=${limit}`),
 
