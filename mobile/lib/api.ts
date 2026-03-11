@@ -182,6 +182,21 @@ export const api = {
       body: JSON.stringify(payload ?? { status: 'verified' }),
     }),
 
+  meetStartSession: (meetingCode: string, reauthIntervalMinutes?: number) =>
+    request<{
+      sessionId: string;
+      meetingCode: string;
+      status: string;
+      reauthIntervalMinutes: number;
+      startedAt: string;
+    }>('/meet/session/start', {
+      method: 'POST',
+      body: JSON.stringify({ meetingCode, reauthIntervalMinutes }),
+    }),
+
+  meetEndSession: (sessionId: string) =>
+    request<{ ok: boolean }>(`/meet/session/${sessionId}/end`, { method: 'POST' }),
+
   // Dev-only bypass for Expo Go (passkey native module not available)
   passkeyRegisterBypass: () =>
     request<{ status: string }>('/mobile/passkey/register/bypass', { method: 'POST' }),

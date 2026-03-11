@@ -21,13 +21,9 @@ export default function App() {
 
   const mergedParticipants = useMemo(() => {
     if (!sdkRoster.length) return participants;
-
     const existingNames = new Set(
-      participants
-        .map((p) => (p.displayName || '').trim().toLowerCase())
-        .filter(Boolean)
+      participants.map((p) => (p.displayName || '').trim().toLowerCase()).filter(Boolean)
     );
-
     const unlinked = sdkRoster
       .filter((p) => !existingNames.has((p.displayName || '').trim().toLowerCase()))
       .map((p) => ({
@@ -36,7 +32,6 @@ export default function App() {
         status: 'unlinked',
         verificationExpiresAt: null,
       }));
-
     return [...participants, ...unlinked];
   }, [participants, sdkRoster]);
 
@@ -45,171 +40,116 @@ export default function App() {
       setMeetingCode(ctx.meetingCode);
       setMeetingCodeSource(ctx.source);
     });
-
     const rosterTimer = setInterval(async () => {
       const roster = await getMeetingRoster();
       setSdkRoster(roster);
     }, 5000);
-
     getMeetingRoster().then(setSdkRoster);
-
     return () => clearInterval(rosterTimer);
   }, []);
 
   useEffect(() => {
     if (!session || !hasToken) return;
-
     const socket = createMeetSocket(api.getToken());
     socket.connect();
-
     socket.on('connect', async () => {
       socket.emit('meeting:join', { sessionId: session.sessionId || session.id }, () => {});
     });
-
     socket.on('meeting:participants-updated', () => {
       refreshParticipants(session.sessionId || session.id).catch(() => {});
       refreshEvents(session.sessionId || session.id).catch(() => {});
     });
-
     socket.on('meeting:ended', () => {
       setSession((prev) => prev ? { ...prev, status: 'ended' } : prev);
       refreshEvents(session.sessionId || session.id).catch(() => {});
     });
-
-    return () => {
-      socket.disconnect();
-    };
+    return () => socket.disconnect();
   }, [session, hasToken]);
 
   useEffect(() => {
     if (!session) return;
-
     const id = session.sessionId || session.id;
-    const countdownTimer = setInterval(() => {
-      setParticipants((prev) => [...prev]);
-    }, 1000);
-
+    const countdownTimer = setInterval(() => setParticipants((prev) => [...prev]), 1000);
     const pollTimer = setInterval(() => {
       refreshParticipants(id).catch(() => {});
       refreshEvents(id).catch(() => {});
     }, 5000);
-
-    return () => {
-      clearInterval(countdownTimer);
-      clearInterval(pollTimer);
-    };
+    return () => { clearInterval(countdownTimer); clearInterval(pollTimer); };
   }, [session]);
 
   async function refreshParticipants(sessionId) {
     const data = await api.getParticipants(sessionId);
     setParticipants(data);
   }
-
   async function refreshEvents(sessionId) {
     const data = await api.getEvents(sessionId, 25);
     setEvents(data);
   }
-
   async function startSession() {
     setError('');
-    if (!hasToken) {
-      setError('Paste your th_token first.');
-      return;
-    }
-
+    if (!hasToken) { setError('Paste your token first.'); return; }
     setBusy(true);
     try {
       const started = await api.startSession(meetingCode, reauthMinutes);
       setSession(started);
-      await Promise.all([
-        refreshParticipants(started.sessionId),
-        refreshEvents(started.sessionId),
-      ]);
-    } catch (err) {
-      setError(err.message || 'Failed to start session');
-    } finally {
-      setBusy(false);
-    }
+      await Promise.all([refreshParticipants(started.sessionId), refreshEvents(started.sessionId)]);
+    } catch (err) { setError(err.message || 'Failed to start session'); }
+    finally { setBusy(false); }
   }
-
   async function verifyAll() {
     if (!session) return;
-    setBusy(true);
-    setError('');
+    setBusy(true); setError('');
     try {
       const id = session.sessionId || session.id;
       await api.verifyAll(id);
       await Promise.all([refreshParticipants(id), refreshEvents(id)]);
-    } catch (err) {
-      setError(err.message || 'Failed to mark all pending');
-    } finally {
-      setBusy(false);
-    }
+    } catch (err) { setError(err.message || 'Failed'); }
+    finally { setBusy(false); }
   }
-
   async function reverifyParticipant(participantId) {
     if (!session) return;
-    setBusy(true);
-    setError('');
+    setBusy(true); setError('');
     try {
       const id = session.sessionId || session.id;
       await api.reverifyParticipant(id, participantId, 'Host requested reverification');
       await Promise.all([refreshParticipants(id), refreshEvents(id)]);
-    } catch (err) {
-      setError(err.message || 'Failed to reverify participant');
-    } finally {
-      setBusy(false);
-    }
+    } catch (err) { setError(err.message || 'Failed'); }
+    finally { setBusy(false); }
   }
-
   async function endSession() {
     if (!session) return;
-    setBusy(true);
-    setError('');
+    setBusy(true); setError('');
     try {
       const id = session.sessionId || session.id;
       await api.endSession(id);
       setSession((prev) => prev ? { ...prev, status: 'ended' } : prev);
       await refreshEvents(id);
-    } catch (err) {
-      setError(err.message || 'Failed to end session');
-    } finally {
-      setBusy(false);
-    }
+    } catch (err) { setError(err.message || 'Failed'); }
+    finally { setBusy(false); }
   }
-
-  function saveToken() {
-    api.setToken(tokenInput.trim());
-    setError('');
-  }
-
+  function saveToken() { api.setToken(tokenInput.trim()); setError(''); }
   async function copyMeetingCode() {
-    try {
-      await navigator.clipboard.writeText(meetingCode);
-    } catch {
-      setError('Clipboard unavailable in this browser context.');
-    }
+    try { await navigator.clipboard.writeText(meetingCode); }
+    catch { setError('Clipboard unavailable.'); }
   }
 
   return (
     <div style={s.page}>
       <div style={s.header}>
-        <h1 style={{ margin: 0, fontSize: 16 }}>NAI Secure Meet</h1>
-        <span style={{ color: '#6b7280', fontSize: 12 }}>
-          Side-panel MVP
-        </span>
+        <span style={s.headerTitle}>NAI Secure Meet</span>
+        {busy && <span style={s.busyDot} />}
       </div>
 
-      <div style={s.card}>
-        <label style={s.label}>Host JWT (`th_token`)</label>
+      <div style={s.block}>
+        <div style={s.label}>Host token</div>
         <textarea
           value={tokenInput}
           onChange={(e) => setTokenInput(e.target.value)}
-          rows={3}
+          rows={2}
           style={s.textarea}
-          placeholder="Paste token from your authenticated NAI session"
+          placeholder="Paste th_token"
         />
-        <button style={s.smallBtn} onClick={saveToken}>Save Token</button>
+        <button style={s.btn} onClick={saveToken}>Save</button>
       </div>
 
       <SessionControls
@@ -224,27 +164,26 @@ export default function App() {
         sdkSource={meetingCodeSource}
       />
 
-      <div style={s.sessionInfo}>
-        <div><strong>Session:</strong> {session ? (session.sessionId || session.id) : 'Not started'}</div>
-        <div><strong>Meeting code:</strong> {meetingCode}</div>
-        <div><strong>Status:</strong> {session?.status ?? 'idle'}</div>
-        <div><strong>Reauth:</strong> {session?.reauthIntervalMinutes ?? reauthMinutes} min</div>
-        <button onClick={copyMeetingCode} style={s.smallBtn}>Copy Meeting Code</button>
+      <div style={s.block}>
+        <div style={s.metaRow}><span style={s.metaKey}>Session</span><span style={s.metaVal}>{session ? (session.sessionId || session.id).slice(0, 8) + '…' : '—'}</span></div>
+        <div style={s.metaRow}><span style={s.metaKey}>Code</span><span style={s.metaVal}>{meetingCode || '—'}</span></div>
+        <div style={s.metaRow}><span style={s.metaKey}>Status</span><span style={s.metaVal}>{session?.status ?? 'idle'}</span></div>
+        <div style={s.metaRow}><span style={s.metaKey}>Reauth</span><span style={s.metaVal}>{session?.reauthIntervalMinutes ?? reauthMinutes} min</span></div>
+        <button style={s.btn} onClick={copyMeetingCode}>Copy code</button>
       </div>
 
       {error && <div style={s.error}>{error}</div>}
-      {busy && <div style={s.busy}>Working...</div>}
 
-      <h2 style={s.sectionTitle}>Participants</h2>
+      <div style={s.sectionLabel}>Participants</div>
       <ParticipantList participants={mergedParticipants} onReverify={reverifyParticipant} />
 
-      <h2 style={s.sectionTitle}>Event Log</h2>
+      <div style={s.sectionLabel}>Event log</div>
       <div style={s.logWrap}>
-        {!events.length && <div style={{ color: '#6b7280', fontSize: 12 }}>No events yet.</div>}
+        {!events.length && <div style={s.empty}>No events yet.</div>}
         {events.map((ev) => (
           <div key={ev.id} style={s.logRow}>
-            <div style={{ fontSize: 12, fontWeight: 600 }}>{ev.event_type}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>{new Date(ev.created_at).toLocaleTimeString()}</div>
+            <span style={s.logType}>{ev.event_type}</span>
+            <span style={s.logTime}>{new Date(ev.created_at).toLocaleTimeString()}</span>
           </div>
         ))}
       </div>
@@ -254,79 +193,90 @@ export default function App() {
 
 const s = {
   page: {
+    fontFamily: 'system-ui, sans-serif',
     display: 'flex',
     flexDirection: 'column',
-    gap: '0.75rem',
-    padding: '0.75rem',
-    minHeight: '100vh',
-  },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  card: {
-    border: '1px solid #e5e7eb',
-    borderRadius: 12,
+    gap: '0.5rem',
     padding: '0.75rem',
     background: '#fff',
+    color: '#000',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottom: '2px solid #000',
+    paddingBottom: '0.5rem',
+    marginBottom: '0.25rem',
+  },
+  headerTitle: { fontSize: 13, fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase' },
+  busyDot: {
+    width: 8, height: 8,
+    background: '#000',
+    display: 'inline-block',
+    animation: 'pulse 1s infinite',
+  },
+  block: {
+    border: '1px solid #000',
+    padding: '0.6rem',
     display: 'flex',
     flexDirection: 'column',
-    gap: '0.45rem',
+    gap: '0.35rem',
   },
-  label: { fontSize: 12, fontWeight: 700, color: '#374151' },
+  label: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' },
   textarea: {
-    border: '1px solid #d1d5db',
-    borderRadius: 8,
-    padding: '0.45rem',
-    fontSize: 12,
-    resize: 'vertical',
+    border: '1px solid #000',
+    padding: '0.4rem',
+    fontSize: 11,
+    resize: 'none',
+    fontFamily: 'monospace',
+    width: '100%',
+    boxSizing: 'border-box',
   },
-  smallBtn: {
-    border: '1px solid #d1d5db',
-    borderRadius: 8,
-    padding: '0.45rem 0.55rem',
+  btn: {
+    border: '1px solid #000',
     background: '#fff',
-    fontSize: 12,
+    color: '#000',
+    padding: '0.35rem 0.6rem',
+    fontSize: 11,
+    fontWeight: 700,
     cursor: 'pointer',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
     width: 'fit-content',
   },
-  sessionInfo: {
-    border: '1px solid #e5e7eb',
-    borderRadius: 12,
-    background: '#fff',
-    padding: '0.75rem',
-    fontSize: 12,
-    color: '#1f2937',
-    display: 'grid',
-    gap: 4,
-  },
+  metaRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' },
+  metaKey: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#000' },
+  metaVal: { fontSize: 11, fontFamily: 'monospace', color: '#000' },
   error: {
-    border: '1px solid #fecaca',
-    borderRadius: 10,
-    background: '#fef2f2',
-    color: '#b91c1c',
-    padding: '0.65rem',
-    fontSize: 12,
+    border: '1px solid #000',
+    padding: '0.5rem',
+    fontSize: 11,
+    background: '#000',
+    color: '#fff',
   },
-  busy: {
-    fontSize: 12,
-    color: '#374151',
-  },
-  sectionTitle: {
-    margin: '0.25rem 0',
-    fontSize: 14,
-    color: '#111827',
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    borderBottom: '1px solid #000',
+    paddingBottom: '0.25rem',
+    marginTop: '0.25rem',
   },
   logWrap: {
-    border: '1px solid #e5e7eb',
-    borderRadius: 10,
-    background: '#fff',
-    padding: '0.55rem',
+    border: '1px solid #000',
+    padding: '0.5rem',
     display: 'flex',
     flexDirection: 'column',
-    gap: 6,
-    maxHeight: 180,
-    overflow: 'auto',
+    gap: 4,
+    maxHeight: 160,
+    overflowY: 'auto',
   },
-  logRow: {
-    borderBottom: '1px solid #f3f4f6',
-    paddingBottom: 4,
-  },
+  logRow: { display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb', paddingBottom: 3 },
+  logType: { fontSize: 11, fontWeight: 600 },
+  logTime: { fontSize: 10, color: '#666' },
+  empty: { fontSize: 11, color: '#666' },
 };

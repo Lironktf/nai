@@ -45,7 +45,12 @@ export default function Home() {
 
         {/* Primary actions */}
         <PrimaryButton
-          label="Join Meet Verification"
+          label="Make a Meeting"
+          onPress={() => router.push('/meet/host')}
+        />
+        <PrimaryButton
+          label="Join a Meeting"
+          variant="outline"
           onPress={() => router.push('/meet/join')}
         />
 

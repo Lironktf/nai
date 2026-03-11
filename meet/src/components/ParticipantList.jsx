@@ -3,9 +3,7 @@ import ParticipantRow from './ParticipantRow.jsx';
 export default function ParticipantList({ participants, onReverify }) {
   if (!participants.length) {
     return (
-      <div style={s.empty}>
-        No participants have joined via NAI yet.
-      </div>
+      <div style={s.empty}>No participants yet.</div>
     );
   }
 
@@ -19,13 +17,11 @@ export default function ParticipantList({ participants, onReverify }) {
 }
 
 const s = {
-  wrap: { display: 'flex', flexDirection: 'column', gap: '0.5rem' },
+  wrap: { display: 'flex', flexDirection: 'column', gap: '0.25rem' },
   empty: {
-    border: '1px dashed #d1d5db',
-    borderRadius: 10,
-    padding: '0.75rem',
-    color: '#6b7280',
-    fontSize: 13,
-    background: '#fff',
+    border: '1px dashed #000',
+    padding: '0.6rem',
+    color: '#666',
+    fontSize: 11,
   },
 };

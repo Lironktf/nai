@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -39,6 +39,14 @@ export default function MeetJoinScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg">
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
+        >
       <View className="flex-1 px-6 pt-6 pb-10 justify-between">
         <View>
           <TouchableOpacity onPress={() => router.back()} className="mb-6">
@@ -86,6 +94,8 @@ export default function MeetJoinScreen() {
           disabled={loading}
         />
       </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

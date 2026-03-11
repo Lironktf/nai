@@ -10,20 +10,19 @@ export default function SessionControls({
   sdkSource,
 }) {
   return (
-    <div style={s.card}>
+    <div style={s.block}>
       <div style={s.row}>
-        <label style={s.label}>Meeting Code</label>
+        <div style={s.label}>Meeting code <span style={s.source}>({sdkSource})</span></div>
         <input
           value={meetingCode}
           onChange={(e) => setMeetingCode(e.target.value.toUpperCase())}
           placeholder="NAI-ABC-123"
           style={s.input}
         />
-        <div style={s.hint}>Source: {sdkSource}</div>
       </div>
 
       <div style={s.row}>
-        <label style={s.label}>Auth freshness: {reauthMinutes} minutes</label>
+        <div style={s.label}>Auth freshness — {reauthMinutes} min</div>
         <input
           type="range"
           min={5}
@@ -31,19 +30,18 @@ export default function SessionControls({
           step={1}
           value={reauthMinutes}
           onChange={(e) => setReauthMinutes(Number(e.target.value))}
-          style={{ width: '100%' }}
+          style={{ width: '100%', accentColor: '#000' }}
         />
       </div>
 
       <div style={s.actions}>
         {!active && (
-          <button style={s.primary} onClick={onStart}>Start Secure Session</button>
+          <button style={s.primary} onClick={onStart}>Start session</button>
         )}
-
         {active && (
           <>
-            <button style={s.secondary} onClick={onVerifyAll}>Verify All</button>
-            <button style={s.danger} onClick={onEnd}>End Session</button>
+            <button style={s.secondary} onClick={onVerifyAll}>Verify all</button>
+            <button style={s.destructive} onClick={onEnd}>End session</button>
           </>
         )}
       </div>
@@ -52,50 +50,56 @@ export default function SessionControls({
 }
 
 const s = {
-  card: {
-    border: '1px solid #e5e7eb',
-    borderRadius: 12,
-    background: '#fff',
-    padding: '0.8rem',
+  block: {
+    border: '1px solid #000',
+    padding: '0.6rem',
     display: 'flex',
     flexDirection: 'column',
-    gap: '0.8rem',
+    gap: '0.6rem',
   },
-  row: { display: 'flex', flexDirection: 'column', gap: '0.35rem' },
-  label: { fontSize: 13, color: '#374151', fontWeight: 600 },
+  row: { display: 'flex', flexDirection: 'column', gap: '0.3rem' },
+  label: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' },
+  source: { fontWeight: 400, textTransform: 'none', letterSpacing: 0 },
   input: {
-    border: '1px solid #d1d5db',
-    borderRadius: 8,
-    padding: '0.55rem 0.6rem',
-    fontSize: 14,
-  },
-  hint: { fontSize: 11, color: '#6b7280' },
-  actions: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' },
-  primary: {
-    background: '#111827',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    padding: '0.55rem 0.7rem',
-    cursor: 'pointer',
+    border: '1px solid #000',
+    padding: '0.4rem 0.5rem',
     fontSize: 13,
+    fontFamily: 'monospace',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  actions: { display: 'flex', gap: '0.4rem' },
+  primary: {
+    background: '#000',
+    color: '#fff',
+    border: '1px solid #000',
+    padding: '0.4rem 0.7rem',
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: 'pointer',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
   },
   secondary: {
-    background: '#f8fafc',
-    color: '#111827',
-    border: '1px solid #d1d5db',
-    borderRadius: 8,
-    padding: '0.55rem 0.7rem',
+    background: '#fff',
+    color: '#000',
+    border: '1px solid #000',
+    padding: '0.4rem 0.7rem',
+    fontSize: 11,
+    fontWeight: 700,
     cursor: 'pointer',
-    fontSize: 13,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
   },
-  danger: {
-    background: '#fee2e2',
-    color: '#991b1b',
-    border: '1px solid #fecaca',
-    borderRadius: 8,
-    padding: '0.55rem 0.7rem',
+  destructive: {
+    background: '#fff',
+    color: '#000',
+    border: '1px dashed #000',
+    padding: '0.4rem 0.7rem',
+    fontSize: 11,
+    fontWeight: 700,
     cursor: 'pointer',
-    fontSize: 13,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
   },
 };

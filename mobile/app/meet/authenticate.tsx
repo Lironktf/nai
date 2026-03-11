@@ -6,9 +6,11 @@ import WebView from 'react-native-webview';
 
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { api } from '../../lib/api';
-import { assertMeetingPasskey } from '../../lib/passkey';
+// DEV BYPASS: passkey assertion skipped until WebAuthn enrollment is wired up.
+// To re-enable: remove this comment, restore assertMeetingPasskey call below,
+// and ensure server complete-auth no longer bypasses passkeyPassed check.
 
-type Step = 'idle' | 'liveness_loading' | 'liveness_webview' | 'passkey' | 'finalizing' | 'done' | 'error';
+type Step = 'idle' | 'liveness_loading' | 'liveness_webview' | 'finalizing' | 'done' | 'error';
 
 export default function MeetAuthenticateScreen() {
   const { sessionId, meetingCode } = useLocalSearchParams<{ sessionId: string; meetingCode: string }>();
@@ -41,7 +43,7 @@ export default function MeetAuthenticateScreen() {
   async function handleLivenessComplete() {
     if (!livenessSessionId) return;
 
-    setStep('passkey');
+    setStep('finalizing');
     try {
       const liveness = await api.meetLivenessComplete(sessionId, livenessSessionId);
       if (!liveness.livenessPass || !liveness.faceMatchPassed) {
@@ -53,8 +55,6 @@ export default function MeetAuthenticateScreen() {
         setStep('error');
         return;
       }
-
-      await assertMeetingPasskey(sessionId);
 
       setStep('finalizing');
       const result = await api.meetCompleteAuth(sessionId, { status: 'verified' });
@@ -122,12 +122,11 @@ export default function MeetAuthenticateScreen() {
             </Text>
           )}
 
-          {(step === 'liveness_loading' || step === 'passkey' || step === 'finalizing') && (
+          {(step === 'liveness_loading' || step === 'finalizing') && (
             <View className="items-center mt-6">
               <ActivityIndicator size="large" color="#1A3A5C" />
               <Text className="text-muted text-base mt-3">
                 {step === 'liveness_loading' && 'Preparing liveness challenge...'}
-                {step === 'passkey' && 'Complete passkey verification on your device...'}
                 {step === 'finalizing' && 'Finalizing verification status...'}
               </Text>
             </View>

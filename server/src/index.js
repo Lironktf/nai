@@ -17,6 +17,7 @@ import mobileRouter from './routes/mobile.js';
 import meetRouter from './routes/meet.js';
 import { supabase } from './db/supabase.js';
 
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const clientDist = join(__dirname, '..', '..', 'client', 'dist');
 
@@ -46,7 +47,11 @@ export const io = new SocketServer(httpServer, {
 });
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({
+  // Allow Google Meet to embed /meet-panel in an iframe
+  frameguard: false,
+  contentSecurityPolicy: false,
+}));
 app.use(cors({ origin: corsOrigin }));
 
 // Raw body MUST be registered before express.json().
@@ -102,6 +107,19 @@ if (existsSync(clientDist)) {
 } else {
   app.get('/liveness', (_req, res) =>
     res.status(503).send('Liveness page not built. Run: cd client && npm run build')
+  );
+}
+
+// ── Meet side panel (built meet app static files) ─────────────────────────────
+// Google Meet add-on loads /meet-panel in the side panel iframe.
+// Run `npm run build` in the meet/ directory before using this.
+const meetDist = join(__dirname, '..', '..', 'meet', 'dist');
+if (existsSync(meetDist)) {
+  app.use('/meet-panel/assets', express.static(join(meetDist, 'assets')));
+  app.get('/meet-panel', (_req, res) => res.sendFile(join(meetDist, 'index.html')));
+} else {
+  app.get('/meet-panel', (_req, res) =>
+    res.status(503).send('Meet panel not built. Run: cd meet && npm run build')
   );
 }
 

@@ -8,36 +8,47 @@ function formatCountdown(expiresAt) {
   return `${min}:${String(sec).padStart(2, '0')}`;
 }
 
-function statusColor(status) {
-  switch (status) {
-    case 'verified': return '#166534';
-    case 'pending': return '#92400e';
-    case 'expired': return '#334155';
-    case 'failed': return '#991b1b';
-    case 'unlinked': return '#374151';
-    default: return '#374151';
-  }
+// Status expressed as text label with inverted badge for verified, outlined otherwise
+function StatusBadge({ status }) {
+  const filled = status === 'verified';
+  return (
+    <span style={{
+      fontSize: 9,
+      fontWeight: 700,
+      textTransform: 'uppercase',
+      letterSpacing: '0.08em',
+      padding: '2px 5px',
+      border: '1px solid #000',
+      background: filled ? '#000' : '#fff',
+      color: filled ? '#fff' : '#000',
+    }}>
+      {status}
+    </span>
+  );
 }
 
 export default function ParticipantRow({ participant, onReverify }) {
   const canReverify = participant.status !== 'pending' && !String(participant.id).startsWith('unlinked:');
   return (
     <div style={s.row}>
-      <div style={{ flex: 1 }}>
+      <div style={s.info}>
         <div style={s.name}>{participant.identityLabel || 'Unknown'}</div>
-        <div style={s.sub}>Status: <span style={{ color: statusColor(participant.status), fontWeight: 700 }}>{participant.status}</span></div>
-        {participant.verificationExpiresAt && (
-          <div style={s.sub}>Expires in: {formatCountdown(participant.verificationExpiresAt)}</div>
-        )}
-        {participant.failureReason && <div style={{ ...s.sub, color: '#991b1b' }}>{participant.failureReason}</div>}
+        <div style={s.meta}>
+          <StatusBadge status={participant.status} />
+          {participant.verificationExpiresAt && (
+            <span style={s.countdown}>{formatCountdown(participant.verificationExpiresAt)}</span>
+          )}
+          {participant.failureReason && (
+            <span style={s.failure}>{participant.failureReason}</span>
+          )}
+        </div>
       </div>
-
       <button
         onClick={() => onReverify(participant.id)}
         disabled={!canReverify}
-        style={{ ...s.btn, opacity: canReverify ? 1 : 0.55 }}
+        style={{ ...s.btn, opacity: canReverify ? 1 : 0.3 }}
       >
-        Reverify
+        Re-verify
       </button>
     </div>
   );
@@ -46,22 +57,27 @@ export default function ParticipantRow({ participant, onReverify }) {
 const s = {
   row: {
     display: 'flex',
-    gap: '0.75rem',
-    border: '1px solid #e5e7eb',
-    borderRadius: 10,
-    padding: '0.75rem',
-    background: '#fff',
+    gap: '0.5rem',
+    border: '1px solid #000',
+    padding: '0.5rem',
     alignItems: 'center',
+    background: '#fff',
   },
-  name: { fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 4 },
-  sub: { fontSize: 12, color: '#4b5563' },
+  info: { flex: 1, display: 'flex', flexDirection: 'column', gap: 4 },
+  name: { fontSize: 12, fontWeight: 700, color: '#000' },
+  meta: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' },
+  countdown: { fontSize: 10, fontFamily: 'monospace', color: '#000' },
+  failure: { fontSize: 10, color: '#000', fontStyle: 'italic' },
   btn: {
-    border: '1px solid #d1d5db',
-    background: '#f8fafc',
-    color: '#111827',
-    padding: '0.4rem 0.55rem',
-    borderRadius: 8,
+    border: '1px solid #000',
+    background: '#fff',
+    color: '#000',
+    padding: '0.3rem 0.5rem',
+    fontSize: 10,
+    fontWeight: 700,
     cursor: 'pointer',
-    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    whiteSpace: 'nowrap',
   },
 };
