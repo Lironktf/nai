@@ -61,6 +61,15 @@ CREATE INDEX idx_tg_sessions_status ON telegram_verification_sessions(status);
 CREATE INDEX idx_tg_participants_session_id ON telegram_session_participants(telegram_session_id);
 CREATE INDEX idx_tg_participants_tg_id ON telegram_session_participants(telegram_user_id);
 
+-- Updated at helper
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Updated at triggers
 CREATE TRIGGER set_updated_at_tg_links BEFORE UPDATE ON telegram_account_links FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER set_updated_at_tg_sessions BEFORE UPDATE ON telegram_verification_sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

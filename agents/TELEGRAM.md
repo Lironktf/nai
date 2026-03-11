@@ -28,21 +28,25 @@ You need to tell Telegram where to send updates. You can do this by visiting:
 `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=<YOUR_WEBHOOK_BASE_URL>/telegram/webhook&secret_token=<YOUR_WEBHOOK_SECRET>`
 
 ### 4. Database Migration
-The migration `20240105000000_telegram_integration.sql` should be applied to your Supabase instance.
+The migration `20240105000001_telegram_integration.sql` should be applied to your Supabase instance.
 
 ## Usage
 
 1. Add the bot to a Telegram Group.
 2. Make the bot an **Administrator** (so it can edit its own status messages).
-3. A group admin runs `/nai_start`.
-4. Users tap **Authenticate**. The bot will PM them a secure link.
-5. Users click the link, log in to TrustHandshake (if not already), and their account is linked.
-6. The status message in the group updates to **✅ Verified**.
+3. In the group, run `/nai_start`, optionally with a reverify interval:
+   - `/nai_start`
+   - `/nai_start 15`
+   - `/nai_start 15 DAILY`
+4. Users tap **Authenticate**. The bot generates a 4-character auth code and tries to DM it.
+5. Users open the NAI mobile app, go to **Telegram Auth**, and paste the code.
+6. The mobile app runs liveness / face match against the user’s existing KYC profile photo.
+7. The Telegram participant is linked and the group status updates to **✅ Verified**.
 
 ## Architecture Notes
 
 - **Shared Engine:** Uses the same `users` and `identity_verifications` tables as the mobile/web apps.
-- **Deep Linking:** Uses JWT-signed tokens to safely pass Telegram context to the web auth flow.
+- **Short-code handoff:** Uses a 4-character code with a short expiry to hand off from Telegram to the mobile app.
 - **Bot logic:** Isolated in `server/src/lib/telegram.js` and `server/src/routes/telegram.js`.
 - **Atomic Updates:** The bot maintains a single status message per group, editing it as participants join or verify.
 
