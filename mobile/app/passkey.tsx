@@ -1,39 +1,43 @@
+// PASSKEY REGISTRATION — NOT IN ACTIVE FLOW
+//
+// How passkeys work:
+//   1. Server generates a WebAuthn registration challenge (rpId = nai.lironkatsif.com)
+//   2. react-native-passkey calls iOS/Android platform API with the challenge
+//   3. iOS shows a Face ID prompt, creates a key pair in the Secure Enclave
+//      (private key NEVER leaves the device), sends public key to server
+//   4. Server stores public key in webauthn_credentials, sets status = 'active'
+//   5. At verification time, server generates an auth challenge; user does Face ID
+//      which signs the challenge with the private key; server verifies the signature
+//
+// Prerequisites to re-enable:
+//   - APPLE_TEAM_ID filled in server .env (developer.apple.com → Membership)
+//   - Rebuild the app after adding associatedDomains to app.json (already done)
+//   - Change router.replace('/face-verify') back to router.replace('/passkey') in kyc.tsx
+//
 import { View, Text } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { registerPasskey } from '../lib/passkey';
-import { api } from '../lib/api';
 
 export default function PasskeyScreen() {
-  const [step, setStep] = useState<'idle' | 'registering' | 'bypassing' | 'error'>('idle');
+  const [registering, setRegistering] = useState(false);
   const [error, setError] = useState('');
-  const [showBypass, setShowBypass] = useState(false);
 
   async function handleRegister() {
-    setStep('registering');
+    setRegistering(true);
     setError('');
-    setShowBypass(false);
     try {
       await registerPasskey();
       router.replace('/home');
     } catch (err: any) {
-      setError(err?.message || 'Passkey not available — use dev bypass below.');
-      if (__DEV__) setShowBypass(true);
-      setStep('error');
-    }
-  }
-
-  async function handleBypass() {
-    setStep('bypassing');
-    setError('');
-    try {
-      await api.passkeyRegisterBypass();
-      router.replace('/home');
-    } catch (err: any) {
-      setError(err.message || 'Bypass failed');
-      setStep('error');
+      // Include the native error code if available (helps debug domain/AASA issues)
+      const code = err?.code != null ? ` (code ${err.code})` : '';
+      setError((err?.message || 'Registration failed') + code);
+      console.error('[passkey] registration error:', err);
+    } finally {
+      setRegistering(false);
     }
   }
 
@@ -53,26 +57,16 @@ export default function PasskeyScreen() {
             proves it's you — every time you verify.
           </Text>
 
-          {step === 'error' && (
+          {!!error && (
             <Text className="text-red-500 text-sm mt-6 text-center">{error}</Text>
           )}
         </View>
 
-        <View className="gap-3">
-          <PrimaryButton
-            label={step === 'registering' ? 'Registering...' : 'Register Face ID'}
-            onPress={handleRegister}
-            disabled={step === 'registering' || step === 'bypassing'}
-          />
-          {showBypass && __DEV__ && (
-            <PrimaryButton
-              label={step === 'bypassing' ? 'Activating...' : 'Skip — Dev bypass (Expo Go)'}
-              variant="ghost"
-              onPress={handleBypass}
-              disabled={step === 'bypassing'}
-            />
-          )}
-        </View>
+        <PrimaryButton
+          label={registering ? 'Registering...' : 'Register Face ID'}
+          onPress={handleRegister}
+          disabled={registering}
+        />
       </View>
     </SafeAreaView>
   );

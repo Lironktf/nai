@@ -32,3 +32,11 @@ export async function assertPasskey(sessionId: string): Promise<void> {
   const assertionResponse = await Passkey.get(challengeOptions);
   await api.passkeyAssertComplete(sessionId, assertionResponse, 0);
 }
+
+// Assert passkey for Meet meeting-session auth.
+export async function assertMeetingPasskey(sessionId: string): Promise<void> {
+  const Passkey = getPasskey();
+  const { challengeOptions } = await api.meetPasskeyAssertStart(sessionId);
+  const assertionResponse = await Passkey.get(challengeOptions);
+  await api.meetPasskeyAssertComplete(sessionId, assertionResponse);
+}

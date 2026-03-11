@@ -5,27 +5,24 @@ import { useEffect, useRef, useState } from 'react';
 import WebView from 'react-native-webview';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { api } from '../lib/api';
-import { assertPasskey } from '../lib/passkey';
 
 type VerifyStep =
   | 'waiting'
   | 'incoming'
   | 'auth'
-  | 'liveness_loading'  // fetching liveness sessionId from server
-  | 'liveness_webview'  // WebView running FaceLivenessDetector
-  | 'checking'          // server evaluating liveness + face match
+  | 'liveness_loading'
+  | 'liveness_webview'
+  | 'checking'
   | 'peer_pending'
   | 'error';
 
 export default function Verify() {
-  const { sessionId, peerName, peerPhoto, mode, devBypass } = useLocalSearchParams<{
+  const { sessionId, peerName, peerPhoto, mode } = useLocalSearchParams<{
     sessionId: string;
     peerName: string;
     peerPhoto: string;
     mode: 'outgoing' | 'incoming';
-    devBypass: string;
   }>();
-  const isDevBypass = devBypass === '1';
 
   const [step, setStep] = useState<VerifyStep>(mode === 'incoming' ? 'incoming' : 'waiting');
   const [error, setError] = useState('');
@@ -70,17 +67,12 @@ export default function Verify() {
     router.replace('/home');
   }
 
-  async function handleAuth() {
+  async function handleStartLiveness() {
     setError('');
-    if (isDevBypass) {
-      setStep('checking');
-      await handleBypassAssert();
-      return;
-    }
     setStep('liveness_loading');
     try {
-      const { sessionId: lsid } = await api.livenessStart();
-      setLivenessSessionId(lsid);
+      const { sessionId: id } = await api.livenessStart();
+      setLivenessSessionId(id);
       setStep('liveness_webview');
     } catch (err: any) {
       setError(err.message || 'Failed to start liveness check');
@@ -92,44 +84,17 @@ export default function Verify() {
     if (!livenessSessionId) return;
     setStep('checking');
     try {
-      const { livenessPass, livenessConfidence, faceMatchPassed, faceMatchScore } =
-        await api.livenessComplete(livenessSessionId);
-
-      if (!livenessPass) {
-        setError(
-          `Liveness check failed (confidence: ${livenessConfidence?.toFixed(1)}%). ` +
-          'Ensure you are in good lighting and face the camera directly.'
-        );
+      const result = await api.livenessComplete(livenessSessionId);
+      if (!result.livenessPass || !result.faceMatchPassed) {
+        setError(`Face verification failed (score: ${result.faceMatchScore?.toFixed(1) ?? 0}%). Please retry in better lighting.`);
         setStep('error');
         return;
       }
-      if (!faceMatchPassed) {
-        setError(
-          `Face does not match your profile (score: ${faceMatchScore?.toFixed(1)}%). ` +
-          'Please try again in better lighting.'
-        );
-        setStep('error');
-        return;
-      }
-
-      await assertPasskey(sessionId);
+      // DEV BYPASS: skip passkey assertion until WebAuthn enrollment is wired up.
+      await api.testAssertBypass(sessionId);
       startPollingForCompletion();
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
-      setStep('error');
-    }
-  }
-
-  async function handleBypassAssert() {
-    try {
-      const { verificationCode, state } = await api.testAssertBypass(sessionId);
-      if (state === 'verified' && verificationCode) {
-        router.replace({ pathname: '/confirmed', params: { peerName, code: verificationCode } });
-      } else {
-        startPollingForCompletion();
-      }
-    } catch (err: any) {
-      setError(err.message || 'Bypass failed');
       setStep('error');
     }
   }
@@ -152,6 +117,42 @@ export default function Verify() {
   }
 
   const pulseStyle = { opacity: pulse };
+
+  if (step === 'liveness_webview' && livenessSessionId) {
+    const livenessUrl =
+      `${process.env.EXPO_PUBLIC_API_URL}/liveness` +
+      `?sessionId=${livenessSessionId}` +
+      `&identityPoolId=${encodeURIComponent(process.env.EXPO_PUBLIC_COGNITO_IDENTITY_POOL_ID ?? '')}` +
+      `&region=${process.env.EXPO_PUBLIC_AWS_REGION ?? 'us-east-1'}`;
+
+    return (
+      <View style={{ flex: 1 }}>
+        <WebView
+          source={{ uri: livenessUrl }}
+          style={{ flex: 1 }}
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          onMessage={(event) => {
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              if (data.done) handleLivenessComplete();
+              else if (data.error) {
+                setError(data.error);
+                setStep('error');
+              }
+            } catch {
+              setError('Invalid liveness callback');
+              setStep('error');
+            }
+          }}
+          onError={(e) => {
+            setError(`Liveness page failed: ${e.nativeEvent.description}`);
+            setStep('error');
+          }}
+        />
+      </View>
+    );
+  }
 
   if (step === 'waiting') {
     return (
@@ -195,85 +196,19 @@ export default function Verify() {
             <Text className="text-ink text-2xl font-bold text-center">{peerName}</Text>
             <Text className="text-muted text-sm text-center">Verified identity</Text>
           </View>
-          <PrimaryButton label="Verify with Face ID" onPress={handleAuth} />
+          <PrimaryButton label="Verify with Face Liveness" onPress={handleStartLiveness} />
         </View>
       </SafeAreaView>
     );
   }
 
-  if (step === 'liveness_loading') {
-    return (
-      <SafeAreaView className="flex-1 bg-bg items-center justify-center gap-4">
-        <ActivityIndicator size="large" color="#1A3A5C" />
-        <Text className="text-ink text-base font-semibold">Preparing liveness check...</Text>
-      </SafeAreaView>
-    );
-  }
-
-  if (step === 'liveness_webview' && livenessSessionId) {
-    const livenessUrl =
-      `${process.env.EXPO_PUBLIC_API_URL}/liveness` +
-      `?sessionId=${livenessSessionId}` +
-      `&identityPoolId=${encodeURIComponent(process.env.EXPO_PUBLIC_COGNITO_IDENTITY_POOL_ID ?? '')}` +
-      `&region=${process.env.EXPO_PUBLIC_AWS_REGION ?? 'us-east-1'}`;
-
-    // Inject JS to catch any unhandled errors and report back via postMessage.
-    const errorCaptureJS = `
-      window.onerror = function(msg, src, line, col, err) {
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
-          JSON.stringify({ jsError: msg + ' (' + src + ':' + line + ')' })
-        );
-        return false;
-      };
-      window.addEventListener('unhandledrejection', function(e) {
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
-          JSON.stringify({ jsError: 'Unhandled promise: ' + (e.reason || e) })
-        );
-      });
-      true;
-    `;
-
-    return (
-      <View style={{ flex: 1 }}>
-        <WebView
-          source={{ uri: livenessUrl }}
-          style={{ flex: 1 }}
-          allowsInlineMediaPlayback
-          mediaPlaybackRequiresUserAction={false}
-          injectedJavaScriptBeforeContentLoaded={errorCaptureJS}
-          onMessage={(event) => {
-            try {
-              const data = JSON.parse(event.nativeEvent.data);
-              if (data.done) {
-                handleLivenessComplete();
-              } else if (data.error) {
-                setError(data.error);
-                setStep('error');
-              } else if (data.jsError) {
-                // Surface JS errors from inside the WebView
-                setError(`WebView JS error: ${data.jsError}`);
-                setStep('error');
-              }
-            } catch {}
-          }}
-          onHttpError={(e) => {
-            setError(`Page load failed: HTTP ${e.nativeEvent.statusCode}`);
-            setStep('error');
-          }}
-          onError={(e) => {
-            setError(`Failed to load liveness page: ${e.nativeEvent.description}`);
-            setStep('error');
-          }}
-        />
-      </View>
-    );
-  }
-
-  if (step === 'checking') {
+  if (step === 'liveness_loading' || step === 'checking') {
     return (
       <SafeAreaView className="flex-1 bg-bg items-center justify-center px-8 gap-4">
         <ActivityIndicator size="large" color="#1A3A5C" />
-        <Text className="text-ink text-xl font-semibold text-center">Checking identity...</Text>
+        <Text className="text-ink text-xl font-semibold text-center">
+          {step === 'liveness_loading' ? 'Preparing liveness challenge...' : 'Checking identity...'}
+        </Text>
       </SafeAreaView>
     );
   }

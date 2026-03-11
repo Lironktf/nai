@@ -37,6 +37,22 @@ export async function createInquiry(userId) {
   };
 }
 
+// Fetch the current status of an inquiry directly from Persona's API.
+// Returns { status, isApproved, isFailed } or null on failure.
+export async function fetchInquiryStatus(inquiryId) {
+  const res = await fetch(`${PERSONA_BASE}/inquiries/${inquiryId}`, { headers: personaHeaders });
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const status = json.data?.attributes?.status ?? null;
+
+  return {
+    status,
+    isApproved: status === 'approved',
+    isFailed: ['failed', 'declined', 'expired'].includes(status),
+  };
+}
+
 // Fetch full inquiry details after a webhook fires.
 // Returns parsed fields we care about, or null on failure.
 export async function fetchInquiryDetails(inquiryId) {
@@ -60,14 +76,20 @@ export async function fetchInquiryDetails(inquiryId) {
     v.type?.startsWith('verification/selfie')
   );
 
+  const gAttrs = govId?.attributes ?? {};
+  const firstName = gAttrs.nameFirst ?? gAttrs.firstName ?? null;
+  const lastName  = gAttrs.nameLast  ?? gAttrs.lastName  ?? null;
+  const legalName = firstName && lastName ? `${firstName} ${lastName}`.trim() : (firstName ?? lastName ?? null);
+
   return {
     documentType: attrs.selectedDocumentType ?? null,
     documentCountry: attrs.selectedCountryCode ?? null,
     faceMatchScore:
-      govId?.attributes?.faceComparisonScore ??
+      gAttrs.faceComparisonScore ??
       selfie?.attributes?.faceComparisonScore ??
       null,
     livenessScore: selfie?.attributes?.livenessScore ?? null,
+    legalName,
   };
 }
 

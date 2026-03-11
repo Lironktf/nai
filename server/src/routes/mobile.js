@@ -299,6 +299,101 @@ router.post('/passkey/assert/complete', requireAuth, async (req, res) => {
   return res.json({ ok: true });
 });
 
+// ── Face enrollment ───────────────────────────────────────────────────────────
+
+// POST /mobile/face/enroll
+// Stores the user's selfie as their reference profile photo.
+// Requires status = pending_video. Updates status to pending_passkey on success.
+router.post('/face/enroll', requireAuth, async (req, res) => {
+  const { userId } = req.user;
+  const { imageBase64 } = req.body;
+
+  if (!imageBase64) return res.status(400).json({ error: 'Missing imageBase64' });
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('status, profile_photo_s3_key')
+    .eq('id', userId)
+    .single();
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.status !== 'pending_video') {
+    return res.status(409).json({ error: 'Face enrollment not applicable for current status', status: user.status });
+  }
+
+  try {
+    const buffer = Buffer.from(imageBase64, 'base64');
+    const key = `profiles/${userId}/photo.jpg`;
+    await uploadToS3(key, buffer, 'image/jpeg');
+
+    await supabase
+      .from('users')
+      .update({ profile_photo_s3_key: key, status: 'pending_passkey' })
+      .eq('id', userId);
+
+    console.log(`[face/enroll] Stored face photo for user ${userId}`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[face/enroll] error:', err.message);
+    return res.status(500).json({ error: 'Failed to store face photo' });
+  }
+});
+
+// POST /mobile/face/activate-bypass
+// DEV BYPASS: compares a live selfie against the user's KYC profile photo via
+// Rekognition. If the face matches (score >= 85%), the account is activated.
+// This replaces passkey registration until WebAuthn is fully wired up.
+// Blocked in production.
+router.post('/face/activate-bypass', requireAuth, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).end();
+
+  const { userId } = req.user;
+  const { imageBase64 } = req.body;
+
+  if (!imageBase64) return res.status(400).json({ error: 'Missing imageBase64' });
+
+  const { data: user } = await supabase
+    .from('users')
+    .select('status, profile_photo_s3_key')
+    .eq('id', userId)
+    .single();
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (!['pending_video', 'pending_passkey'].includes(user.status)) {
+    return res.status(409).json({
+      error: 'Face activation not applicable for current status',
+      status: user.status,
+    });
+  }
+
+  if (!user.profile_photo_s3_key) {
+    return res.status(422).json({
+      error: 'No KYC reference photo found. Complete identity verification first.',
+    });
+  }
+
+  try {
+    const { passed, score } = await compareFaces(user.profile_photo_s3_key, imageBase64);
+    console.log(`[face/activate-bypass] user=${userId} score=${score.toFixed(1)} passed=${passed}`);
+
+    if (passed) {
+      await supabase.from('users').update({ status: 'active' }).eq('id', userId);
+      await supabase.from('audit_logs').insert({
+        user_id: userId,
+        event_type: 'FACE_BYPASS_ACTIVATED',
+        metadata: { face_match_score: score },
+        ip_address: req.ip,
+      });
+    }
+
+    return res.json({ passed, score });
+  } catch (err) {
+    console.error('[face/activate-bypass] error:', err.message);
+    return res.status(422).json({ error: err.message, passed: false, score: 0 });
+  }
+});
+
 // ── Face embedding check ──────────────────────────────────────────────────────
 
 // POST /mobile/face/check
@@ -353,16 +448,17 @@ router.get('/users/search', requireAuth, async (req, res) => {
 
   const { data: users } = await supabase
     .from('users')
-    .select('id, legal_name, profile_photo_s3_key')
+    .select('id, legal_name, email, user_code, profile_photo_s3_key')
     .eq('status', 'active')
     .neq('id', req.user.userId)
-    .or(`legal_name.ilike.%${q}%,email.ilike.%${q}%`)
+    .or(`legal_name.ilike.%${q}%,email.ilike.%${q}%,user_code.ilike.%${q}%`)
     .limit(20);
 
   const results = await Promise.all(
     (users ?? []).map(async (u) => ({
       id: u.id,
-      legalName: u.legal_name,
+      legalName: u.legal_name ?? u.email,
+      userCode: u.user_code,
       photoUrl: u.profile_photo_s3_key
         ? await getPresignedUrl(u.profile_photo_s3_key, 300).catch(() => null)
         : null,

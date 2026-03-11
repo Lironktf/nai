@@ -43,9 +43,20 @@ export default function Home() {
           </TouchableOpacity>
         </View>
 
-        {/* Primary action */}
+        {/* Primary actions */}
+        <PrimaryButton
+          label="Make a Meeting"
+          onPress={() => router.push('/meet/host')}
+        />
+        <PrimaryButton
+          label="Join a Meeting"
+          variant="outline"
+          onPress={() => router.push('/meet/join')}
+        />
+
         <PrimaryButton
           label="Request Verification"
+          variant="outline"
           onPress={() => router.push('/request')}
         />
 
@@ -65,7 +76,7 @@ export default function Home() {
               const { sessionId, peerName, peerPhoto } = await api.testStartSession();
               router.push({
                 pathname: '/verify',
-                params: { sessionId, peerName, peerPhoto: peerPhoto ?? '', mode: 'outgoing', devBypass: '1' },
+                params: { sessionId, peerName, peerPhoto: peerPhoto ?? '', mode: 'outgoing' },
               });
             } catch (err: any) {
               alert(err.message || 'Failed to start test session');
@@ -78,7 +89,7 @@ export default function Home() {
 
         {recent.length === 0 ? (
           <Text className="text-muted text-base text-center mt-8">
-            No verifications yet.{'\n'}Request one to get started.
+            No verifications yet.{"\n"}Request one to get started.
           </Text>
         ) : (
           <FlatList

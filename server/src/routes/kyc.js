@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import {
   createInquiry,
   fetchInquiryDetails,
+  fetchInquiryStatus,
   fetchVerificationWithInquiry,
   fetchSelfiePhotoUrl,
   verifyWebhookSignature,
@@ -56,6 +57,72 @@ router.get('/status', requireAuth, async (req, res) => {
   return res.json({ status: user.status });
 });
 
+// POST /kyc/sync
+// Directly queries Persona's API to check if the inquiry is approved.
+// Called by the mobile app after the user finishes the Persona WebView,
+// as a fallback when the inquiry.approved webhook doesn't arrive (e.g. sandbox).
+router.post('/sync', requireAuth, async (req, res) => {
+  const { userId } = req.user;
+
+  // Only applicable while pending KYC
+  const { data: user } = await supabase
+    .from('users')
+    .select('status')
+    .eq('id', userId)
+    .single();
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.status !== 'pending_kyc') {
+    // Already past KYC — return current status
+    return res.json({ status: user.status });
+  }
+
+  // Find the most recent inquiry for this user in identity_verifications
+  const { data: iv } = await supabase
+    .from('identity_verifications')
+    .select('persona_inquiry_id')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!iv?.persona_inquiry_id) {
+    return res.json({ status: 'pending_kyc', synced: false });
+  }
+
+  const inquiryStatus = await fetchInquiryStatus(iv.persona_inquiry_id);
+  if (!inquiryStatus) {
+    return res.json({ status: 'pending_kyc', synced: false });
+  }
+
+  if (inquiryStatus.isApproved) {
+    const details = (await fetchInquiryDetails(iv.persona_inquiry_id)) ?? {};
+    await upsertKycResult({
+      userId,
+      inquiryId: iv.persona_inquiry_id,
+      isApproved: true,
+      details,
+      eventName: 'kyc.sync',
+    });
+    console.log(`[KYC] sync approved user ${userId} via direct Persona API check`);
+    return res.json({ status: 'pending_video', synced: true });
+  }
+
+  if (inquiryStatus.isFailed) {
+    await upsertKycResult({
+      userId,
+      inquiryId: iv.persona_inquiry_id,
+      isApproved: false,
+      details: {},
+      eventName: 'kyc.sync',
+    });
+    return res.json({ status: 'rejected', synced: true });
+  }
+
+  // Still in progress (pending_review, processing, etc.)
+  return res.json({ status: 'pending_kyc', synced: false, personaStatus: inquiryStatus.status });
+});
+
 // POST /kyc/webhook
 // Receives Persona webhook events. req.body is a raw Buffer (express.raw middleware
 // is applied in index.js before express.json so signature verification works).
@@ -87,7 +154,12 @@ async function handleWebhookEvent(event) {
   const eventName = event?.data?.attributes?.name;
   const payload = event?.data?.attributes?.payload?.data;
 
-  if (!payload) return;
+  console.log(`[KYC webhook] event=${eventName} payload.type=${payload?.type}`);
+
+  if (!payload) {
+    console.log('[KYC webhook] no payload, raw event keys:', JSON.stringify(Object.keys(event?.data?.attributes ?? {})));
+    return;
+  }
 
   // Verification-level events (verification.passed, verification.failed)
   if (payload.type?.startsWith('verification/')) {
@@ -95,23 +167,27 @@ async function handleWebhookEvent(event) {
     return;
   }
 
-  // Inquiry-level events (inquiry.approved, inquiry.completed, etc.)
-  if (payload.type === 'inquiry') {
+  // Inquiry-level events — type may be 'inquiry' (2023 API) or 'inquiries' (newer API)
+  if (payload.type === 'inquiry' || payload.type === 'inquiries') {
     await handleInquiryEvent(eventName, payload);
     return;
   }
+
+  console.log(`[KYC webhook] unhandled payload type: ${payload.type}`);
 }
 
 async function handleVerificationEvent(eventName, verification) {
+  // Individual verification events (government-id, selfie) fire mid-flow while the
+  // user is still inside the Persona WebView. We record them in identity_verifications
+  // but do NOT update the user status here — that only happens on inquiry.approved,
+  // which fires when the FULL inquiry (both ID and face) is complete.
   const isApproved = eventName === 'verification.passed';
   const isFailed = eventName === 'verification.failed';
   if (!isApproved && !isFailed) return;
 
-  // Only act on government-id verifications — selfie passes alone aren't enough
   if (!verification.type?.startsWith('verification/government-id') &&
       !verification.type?.startsWith('verification/selfie')) return;
 
-  // Fetch the parent inquiry to get the referenceId (our userId)
   const details = await fetchVerificationWithInquiry(verification.id);
   if (!details?.referenceId || !details?.inquiryId) {
     console.warn('[KYC] Could not resolve userId from verification', verification.id);
@@ -119,14 +195,46 @@ async function handleVerificationEvent(eventName, verification) {
   }
 
   const { inquiryId, referenceId: userId } = details;
-  await upsertKycResult({ userId, inquiryId, isApproved, details, eventName });
+  // Record in identity_verifications only — do not touch user status.
+  await supabase.from('identity_verifications').upsert(
+    {
+      user_id: userId,
+      persona_inquiry_id: inquiryId,
+      document_type: details.documentType,
+      document_country: details.documentCountry,
+      face_match_score: details.faceMatchScore,
+      liveness_score: details.livenessScore,
+      status: isApproved ? 'approved' : 'failed',
+      reviewed_at: new Date().toISOString(),
+    },
+    { onConflict: 'persona_inquiry_id' }
+  );
+  console.log(`[KYC] Recorded verification ${verification.id} (${eventName}) — awaiting inquiry completion`);
 }
 
 async function handleInquiryEvent(eventName, inquiry) {
   const inquiryId = inquiry.id;
   const attrs = inquiry.attributes ?? {};
-  const userId = attrs.referenceId ?? attrs.reference_id;
+  const meta = inquiry.meta ?? {};
+
+  // Persona may use camelCase, snake_case, or kebab-case depending on API version / webhook config.
+  // Also check meta object as some Persona versions put reference-id there.
+  const userId =
+    attrs.referenceId ??
+    attrs.reference_id ??
+    attrs['reference-id'] ??
+    meta.referenceId ??
+    meta.reference_id ??
+    meta['reference-id'] ??
+    null;
+
   const personaStatus = attrs.status;
+
+  console.log(`[KYC inquiry] id=${inquiryId} userId=${userId} status=${personaStatus} attrs_keys=${Object.keys(attrs).join(',')} meta_keys=${Object.keys(meta).join(',')}`);
+  if (!userId) {
+    // Dump a truncated snapshot so we can identify the correct field name
+    console.log('[KYC inquiry] FULL inquiry snapshot:', JSON.stringify(inquiry).slice(0, 800));
+  }
 
   if (!userId || !inquiryId) return;
 
@@ -175,6 +283,7 @@ async function upsertKycResult({ userId, inquiryId, isApproved, details, eventNa
 
   const nextUserStatus = isApproved ? 'pending_video' : 'rejected';
   const userUpdate = { status: nextUserStatus };
+  if (isApproved && details.legalName) userUpdate.legal_name = details.legalName;
 
   // On approval: download the Persona selfie and store it as the profile photo.
   // This gives us a reference face for Azure Face API comparisons at verification time.
