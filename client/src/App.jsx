@@ -986,7 +986,7 @@ function HomeScreen({ account, onSignOut }) {
         <div className="page-header">
           <div className="stack" style={{ gap: 10 }}>
             <div className="inline-actions" style={{ alignItems: "center" }}>
-              <h1 className="page-title">
+              <h1 className="page-title home-identity-name">
                 {account?.legalName ?? account?.email ?? "—"}
               </h1>
               <span className="pill">Verified</span>
