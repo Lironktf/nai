@@ -9,12 +9,30 @@ import {
   CompareFacesCommand,
   CreateFaceLivenessSessionCommand,
   GetFaceLivenessSessionResultsCommand,
-} from '@aws-sdk/client-rekognition';
+} from "@aws-sdk/client-rekognition";
 
-const client = new RekognitionClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
+const client = new RekognitionClient({
+  region: process.env.AWS_REGION ?? "us-east-1",
+});
 
-const SIMILARITY_THRESHOLD = 85;   // percent (0–100) for face match
-const LIVENESS_THRESHOLD   = 90;   // percent (0–100) for liveness confidence
+const SIMILARITY_THRESHOLD = 85; // percent (0–100) for face match
+const LIVENESS_THRESHOLD = 90; // percent (0–100) for liveness confidence
+const AWS_TIMEOUT_MS = 15_000;
+const LIVENESS_POLL_ATTEMPTS = 12;
+const LIVENESS_POLL_DELAY_MS = 2_000;
+
+function withTimeout(promise, message, ms = AWS_TIMEOUT_MS) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(message)), ms),
+    ),
+  ]);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ── CompareFaces ──────────────────────────────────────────────────────────────
 // Compare a stored profile photo (S3 key) against a live selfie (base64 JPEG).
@@ -29,14 +47,17 @@ export async function compareFaces(profilePhotoS3Key, base64Jpeg) {
       },
     },
     TargetImage: {
-      Bytes: Buffer.from(base64Jpeg, 'base64'),
+      Bytes: Buffer.from(base64Jpeg, "base64"),
     },
     SimilarityThreshold: SIMILARITY_THRESHOLD,
-    QualityFilter: 'AUTO',
+    QualityFilter: "AUTO",
   });
 
   const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Rekognition request timed out after 15s')), 15_000)
+    setTimeout(
+      () => reject(new Error("Rekognition request timed out after 15s")),
+      15_000,
+    ),
   );
 
   const response = await Promise.race([client.send(command), timeout]);
@@ -44,7 +65,7 @@ export async function compareFaces(profilePhotoS3Key, base64Jpeg) {
   // UnmatchedFaces means a face was found but similarity was below the threshold.
   // FaceMatches being empty with no UnmatchedFaces typically means no face detected.
   if (!response.FaceMatches?.length && !response.UnmatchedFaces?.length) {
-    throw new Error('No face detected in one or both images');
+    throw new Error("No face detected in one or both images");
   }
 
   if (!response.FaceMatches?.length) {
@@ -72,31 +93,69 @@ export async function createLivenessSession() {
 // compares the captured reference image against their stored profile photo.
 // Returns { livenessConfidence, livenessPass, faceMatchPassed, faceMatchScore }.
 export async function getLivenessResult(sessionId, profilePhotoS3Key) {
-  const command = new GetFaceLivenessSessionResultsCommand({ SessionId: sessionId });
-  const response = await client.send(command);
+  const command = new GetFaceLivenessSessionResultsCommand({
+    SessionId: sessionId,
+  });
+  let response = null;
 
-  if (response.Status !== 'SUCCEEDED') {
-    throw new Error(`Liveness session not complete (status: ${response.Status})`);
+  for (let attempt = 0; attempt < LIVENESS_POLL_ATTEMPTS; attempt += 1) {
+    console.log(
+      `[rekognition] polling session=${sessionId} attempt=${attempt + 1}/${LIVENESS_POLL_ATTEMPTS}`,
+    );
+    response = await withTimeout(
+      client.send(command),
+      "Rekognition liveness lookup timed out",
+    );
+    console.log(
+      `[rekognition] session=${sessionId} status=${response.Status} confidence=${response.Confidence ?? "n/a"}`,
+    );
+
+    if (response.Status === "SUCCEEDED") {
+      break;
+    }
+
+    if (response.Status === "FAILED" || response.Status === "EXPIRED") {
+      throw new Error(`Liveness session failed (status: ${response.Status})`);
+    }
+
+    if (attempt < LIVENESS_POLL_ATTEMPTS - 1) {
+      await sleep(LIVENESS_POLL_DELAY_MS);
+    }
+  }
+
+  if (response?.Status !== "SUCCEEDED") {
+    throw new Error(
+      `Liveness session not complete (status: ${response?.Status ?? "UNKNOWN"})`,
+    );
   }
 
   const livenessConfidence = response.Confidence ?? 0;
   const livenessPass = livenessConfidence >= LIVENESS_THRESHOLD;
 
   if (!livenessPass) {
-    return { livenessConfidence, livenessPass, faceMatchPassed: false, faceMatchScore: 0 };
+    return {
+      livenessConfidence,
+      livenessPass,
+      faceMatchPassed: false,
+      faceMatchScore: 0,
+    };
   }
 
   // ReferenceImage.Bytes is the face frame captured during the liveness challenge.
   // Use it as the target for CompareFaces against the stored profile photo.
   const refBytes = response.ReferenceImage?.Bytes;
   if (!refBytes) {
-    throw new Error('Liveness succeeded but no reference image was returned');
+    throw new Error("Liveness succeeded but no reference image was returned");
   }
 
-  const refBase64 = Buffer.from(refBytes).toString('base64');
+  const refBase64 = Buffer.from(refBytes).toString("base64");
   const { passed: faceMatchPassed, score: faceMatchScore } = await compareFaces(
     profilePhotoS3Key,
-    refBase64
+    refBase64,
+  );
+
+  console.log(
+    `[rekognition] session=${sessionId} final livenessPass=${livenessPass} faceMatchPassed=${faceMatchPassed} faceMatchScore=${faceMatchScore}`,
   );
 
   return { livenessConfidence, livenessPass, faceMatchPassed, faceMatchScore };
