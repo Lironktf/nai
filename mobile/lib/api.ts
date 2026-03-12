@@ -325,4 +325,34 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code, livenessSessionId }),
     }),
+
+  discordStartAuth: (code: string) =>
+    request<{
+      ok: boolean;
+      code: string;
+      sessionId: string;
+      participantId: string;
+      displayName: string | null;
+      discordUsername: string | null;
+      reauthIntervalMinutes: number;
+    }>("/discord/mobile/start-auth", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+
+  discordLivenessStart: () =>
+    request<{ livenessSessionId: string }>("/discord/mobile/liveness/start", {
+      method: "POST",
+    }),
+
+  discordCompleteAuth: (code: string, livenessSessionId: string) =>
+    request<{
+      ok: boolean;
+      status: "verified";
+      verificationExpiresAt: string;
+      reauthIntervalMinutes: number;
+    }>("/discord/mobile/complete-auth", {
+      method: "POST",
+      body: JSON.stringify({ code, livenessSessionId }),
+    }),
 };

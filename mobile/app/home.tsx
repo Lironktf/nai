@@ -76,6 +76,12 @@ export default function Home() {
         />
 
         <PrimaryButton
+          label="Discord Auth"
+          variant="outline"
+          onPress={() => router.push("/discord-auth")}
+        />
+
+        <PrimaryButton
           label="Request Verification"
           variant="outline"
           onPress={() => router.push("/request")}

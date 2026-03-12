@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon --watch src --env-file ../.env src/index.js",
-    "start": "node --env-file ../.env src/index.js"
+    "start": "node --env-file ../.env src/index.js",
+    "discord:register": "node --env-file ../.env scripts/register-discord-commands.js"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.1005.0",

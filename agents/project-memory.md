@@ -19,6 +19,7 @@
 - Web client: lightweight auth/KYC/enrollment web flow plus liveness page and Telegram handoff page
 - Meet side panel: read-only session status UI inside Google Meet
 - Telegram bot: group coordination plus account-linking flow
+- Discord bot: channel coordination plus mobile short-code session auth
 
 ## Repo Map
 - Mobile screens: `mobile/app/*.tsx`
@@ -183,6 +184,43 @@
 - DM delivery can fail if the user never started the bot privately
 - DM send failures are swallowed, so UX recovery is weak
 - `host_user_id` for Telegram sessions is currently not connected to an NAI identity at session start
+
+## Current Discord Integration
+
+### Product Shape
+- Discord mirrors the Telegram model, but uses Discord slash commands and button interactions
+- Main files:
+  - `server/src/routes/discord.js`
+  - `server/src/lib/discord.js`
+  - `agents/DISCORD.md`
+
+### Session Flow
+- In Discord, someone runs `/nai_start`
+- Server creates a `discord_verification_sessions` row
+- Bot posts a canonical status message in the channel and stores the Discord message id
+- Users click **Authenticate**
+- Bot replies ephemerally with a 4-character auth code
+- User opens the mobile app and goes to **Discord Auth**
+- Mobile app validates the code, starts liveness, and completes auth through:
+  - `POST /discord/mobile/start-auth`
+  - `POST /discord/mobile/liveness/start`
+  - `POST /discord/mobile/complete-auth`
+- On success:
+  - Discord account is linked
+  - participant becomes `verified`
+  - `verification_expires_at` is set
+  - status message is edited in place
+
+### Discord Commands
+- `/nai_start`
+- `/nai_status`
+- `/nai_reverify_all`
+- `/nai_end`
+
+### Discord Gaps
+- No passkey enforcement in the Discord auth flow
+- Discord DMs are not used; code delivery is currently ephemeral in-channel interaction response
+- Slash commands must be registered separately with `npm run discord:register`
 
 ## Web Client Role
 - The web client is small and task-specific
