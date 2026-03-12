@@ -24,7 +24,7 @@ export default function Register({ onRegistered, onLoginClick }) {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>TrustHandshake</h1>
+      <h1 style={styles.title}>NAI</h1>
       <p style={styles.subtitle}>Create your account to begin identity verification.</p>
       <form onSubmit={handleSubmit} style={styles.form}>
         <label style={styles.label}>Email

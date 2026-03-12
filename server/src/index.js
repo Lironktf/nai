@@ -206,5 +206,5 @@ io.on("connection", (socket) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, async () => {
-  console.log(`TrustHandshake server running on port ${PORT}`);
+  console.log(`NAI server running on port ${PORT}`);
 });

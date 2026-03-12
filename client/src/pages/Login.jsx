@@ -24,7 +24,7 @@ export default function Login({ onLoggedIn, onRegisterClick }) {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>TrustHandshake</h1>
+      <h1 style={styles.title}>NAI</h1>
       <p style={styles.subtitle}>Sign in to your account.</p>
       <form onSubmit={handleSubmit} style={styles.form}>
         <label style={styles.label}>Email

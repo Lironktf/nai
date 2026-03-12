@@ -524,7 +524,7 @@ function WelcomeScreen() {
           <img src={logoUrl} alt="NAI logo" className="brand-mark__image" />
         </div>
         <div className="stack">
-          <h1 className="hero-title">TrustHandshake</h1>
+          <h1 className="hero-title">NAI</h1>
           <p className="hero-copy">
             Mutual identity verification. Know exactly who you&apos;re talking
             to across meetings, chat bots, and direct requests.

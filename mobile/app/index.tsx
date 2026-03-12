@@ -21,7 +21,7 @@ export default function Welcome() {
           <View className="w-16 h-16 rounded-2xl bg-navy items-center justify-center mb-6">
             <Text className="text-white text-2xl font-bold">TH</Text>
           </View>
-          <Text className="text-ink text-4xl font-bold tracking-tight">TrustHandshake</Text>
+          <Text className="text-ink text-4xl font-bold tracking-tight">NAI</Text>
           <Text className="text-muted text-base mt-3 text-center leading-relaxed">
             Mutual identity verification.{'\n'}Know exactly who you're talking to.
           </Text>

@@ -54,7 +54,7 @@ export default function TelegramAuth() {
     return (
       <div style={styles.center}>
         <h2>Authentication Required</h2>
-        <p>Please sign in to your TrustHandshake account to complete the linking process.</p>
+        <p>Please sign in to your NAI account to complete the linking process.</p>
         <button 
           style={styles.button}
           onClick={() => window.location.href = '/'}
