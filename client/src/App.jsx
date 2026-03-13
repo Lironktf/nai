@@ -1474,6 +1474,9 @@ function MeetHostScreen() {
 
   return (
     <div className="stack-lg">
+      <button className="back-link" onClick={() => navigate("/meet")}>
+        ← Back to Google Meet
+      </button>
       <div className="stack">
         <p className="page-copy">
           Create a meeting code, verify yourself first, and then let others join
