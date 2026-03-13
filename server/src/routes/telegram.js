@@ -246,6 +246,92 @@ function normalizeCode(raw) {
     .toUpperCase();
 }
 
+router.get("/sessions/current", requireAuth, async (req, res) => {
+  const { userId } = req.user;
+
+  const { data: accountLinks, error: linksError } = await supabase
+    .from("telegram_account_links")
+    .select("telegram_user_id, telegram_username")
+    .eq("nai_user_id", userId);
+
+  if (linksError) {
+    console.error("[telegram/sessions/current] link lookup error:", linksError);
+    return res.status(500).json({ error: "Failed to load Telegram sessions" });
+  }
+
+  const telegramUserIds = (accountLinks ?? []).map(
+    (row) => row.telegram_user_id,
+  );
+  if (!telegramUserIds.length) return res.json([]);
+
+  const { data: participants, error: participantsError } = await supabase
+    .from("telegram_session_participants")
+    .select(
+      "id, telegram_session_id, telegram_user_id, telegram_username, display_name, status, last_verified_at, verification_expires_at, updated_at",
+    )
+    .in("telegram_user_id", telegramUserIds)
+    .order("updated_at", { ascending: false });
+
+  if (participantsError) {
+    console.error(
+      "[telegram/sessions/current] participant lookup error:",
+      participantsError,
+    );
+    return res.status(500).json({ error: "Failed to load Telegram sessions" });
+  }
+
+  const sessionIds = [
+    ...new Set(
+      (participants ?? [])
+        .map((row) => row.telegram_session_id)
+        .filter(Boolean),
+    ),
+  ];
+  if (!sessionIds.length) return res.json([]);
+
+  const { data: sessions, error: sessionsError } = await supabase
+    .from("telegram_verification_sessions")
+    .select(
+      "id, telegram_chat_id, meet_code, status, reauth_interval_minutes, started_at, ended_at",
+    )
+    .in("id", sessionIds)
+    .eq("status", "active");
+
+  if (sessionsError) {
+    console.error(
+      "[telegram/sessions/current] session lookup error:",
+      sessionsError,
+    );
+    return res.status(500).json({ error: "Failed to load Telegram sessions" });
+  }
+
+  const sessionById = new Map(
+    (sessions ?? []).map((session) => [session.id, session]),
+  );
+  const items = (participants ?? [])
+    .map((participant) => {
+      const session = sessionById.get(participant.telegram_session_id);
+      if (!session) return null;
+      return {
+        sessionId: session.id,
+        chatId: session.telegram_chat_id,
+        meetCode: session.meet_code,
+        sessionStatus: session.status,
+        participantStatus: participant.status,
+        reauthIntervalMinutes: getTelegramReauthMinutes(session),
+        startedAt: session.started_at,
+        endedAt: session.ended_at,
+        verificationExpiresAt: participant.verification_expires_at,
+        lastVerifiedAt: participant.last_verified_at,
+        displayName: participant.display_name,
+        telegramUsername: participant.telegram_username,
+      };
+    })
+    .filter(Boolean);
+
+  return res.json(items);
+});
+
 async function getParticipantByCode(rawCode) {
   const code = normalizeCode(rawCode);
   if (!CODE_RE.test(code)) return { code, participant: null, session: null };

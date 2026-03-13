@@ -191,12 +191,10 @@ router.post("/session/start", requireAuth, async (req, res) => {
     .maybeSingle();
 
   if (existingActive) {
-    return res
-      .status(409)
-      .json({
-        error: "An active session already exists for this meeting code",
-        sessionId: existingActive.id,
-      });
+    return res.status(409).json({
+      error: "An active session already exists for this meeting code",
+      sessionId: existingActive.id,
+    });
   }
 
   const { data: session, error } = await supabase
@@ -358,6 +356,123 @@ router.get("/session/by-code", requireAuth, async (req, res) => {
     startedAt: session.started_at,
     endedAt: session.ended_at,
   });
+});
+
+// GET /meet/sessions/current
+// Active meeting sessions where the user is either the host or a participant.
+router.get("/sessions/current", requireAuth, async (req, res) => {
+  const { userId } = req.user;
+
+  const { data: hostedSessions, error: hostedError } = await supabase
+    .from("meeting_sessions")
+    .select(
+      "id, meeting_code, status, reauth_interval_minutes, started_at, ended_at, host_user_id",
+    )
+    .eq("host_user_id", userId)
+    .eq("status", "active")
+    .order("started_at", { ascending: false });
+
+  if (hostedError) {
+    console.error("[meet/sessions/current] hosted lookup error:", hostedError);
+    return res
+      .status(500)
+      .json({ error: "Failed to load active Meet sessions" });
+  }
+
+  const { data: participantRows, error: participantError } = await supabase
+    .from("meeting_participants")
+    .select(
+      "meeting_session_id, status, verification_expires_at, last_verified_at, joined_at, display_name",
+    )
+    .eq("nai_user_id", userId)
+    .order("joined_at", { ascending: false });
+
+  if (participantError) {
+    console.error(
+      "[meet/sessions/current] participant lookup error:",
+      participantError,
+    );
+    return res
+      .status(500)
+      .json({ error: "Failed to load active Meet sessions" });
+  }
+
+  const participantSessionIds = [
+    ...new Set(
+      (participantRows ?? [])
+        .map((row) => row.meeting_session_id)
+        .filter(Boolean),
+    ),
+  ];
+
+  let participantSessions = [];
+  if (participantSessionIds.length) {
+    const { data, error } = await supabase
+      .from("meeting_sessions")
+      .select(
+        "id, meeting_code, status, reauth_interval_minutes, started_at, ended_at, host_user_id",
+      )
+      .in("id", participantSessionIds)
+      .eq("status", "active");
+
+    if (error) {
+      console.error(
+        "[meet/sessions/current] participant session lookup error:",
+        error,
+      );
+      return res
+        .status(500)
+        .json({ error: "Failed to load active Meet sessions" });
+    }
+
+    participantSessions = data ?? [];
+  }
+
+  const participantBySessionId = new Map(
+    (participantRows ?? []).map((row) => [row.meeting_session_id, row]),
+  );
+  const sessionMap = new Map();
+
+  for (const session of hostedSessions ?? []) {
+    sessionMap.set(session.id, {
+      sessionId: session.id,
+      meetingCode: session.meeting_code,
+      sessionStatus: session.status,
+      role: "host",
+      participantStatus: "verified",
+      reauthIntervalMinutes: session.reauth_interval_minutes,
+      startedAt: session.started_at,
+      endedAt: session.ended_at,
+      verificationExpiresAt: null,
+      lastVerifiedAt: null,
+      displayName: null,
+    });
+  }
+
+  for (const session of participantSessions) {
+    const participant = participantBySessionId.get(session.id);
+    if (!participant) continue;
+    sessionMap.set(session.id, {
+      sessionId: session.id,
+      meetingCode: session.meeting_code,
+      sessionStatus: session.status,
+      role: session.host_user_id === userId ? "host" : "participant",
+      participantStatus: effectiveStatus(participant),
+      reauthIntervalMinutes: session.reauth_interval_minutes,
+      startedAt: session.started_at,
+      endedAt: session.ended_at,
+      verificationExpiresAt: participant.verification_expires_at,
+      lastVerifiedAt: participant.last_verified_at,
+      displayName: participant.display_name,
+    });
+  }
+
+  return res.json(
+    [...sessionMap.values()].sort(
+      (a, b) =>
+        new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+    ),
+  );
 });
 
 // GET /meet/session/:sessionId
@@ -709,11 +824,9 @@ router.post(
       .single();
 
     if (!user?.profile_photo_s3_key) {
-      return res
-        .status(422)
-        .json({
-          error: "No reference face photo found. Please complete KYC first.",
-        });
+      return res.status(422).json({
+        error: "No reference face photo found. Please complete KYC first.",
+      });
     }
 
     try {
@@ -771,11 +884,9 @@ router.post(
       .eq("status", "active");
 
     if (!creds?.length) {
-      return res
-        .status(404)
-        .json({
-          error: "No active passkey found. Please complete enrollment first.",
-        });
+      return res.status(404).json({
+        error: "No active passkey found. Please complete enrollment first.",
+      });
     }
 
     const challengeOptions = await generateAuthChallenge(
@@ -901,12 +1012,10 @@ router.post(
     }
 
     if (!progress.livenessPassed) {
-      return res
-        .status(409)
-        .json({
-          error:
-            "Liveness and face match must pass before completing authentication",
-        });
+      return res.status(409).json({
+        error:
+          "Liveness and face match must pass before completing authentication",
+      });
     }
 
     // DEV BYPASS: passkey assertion skipped until WebAuthn enrollment is wired up.
@@ -916,11 +1025,9 @@ router.post(
       process.env.NODE_ENV === "production" &&
       false
     ) {
-      return res
-        .status(409)
-        .json({
-          error: "Passkey assertion must pass before completing authentication",
-        });
+      return res.status(409).json({
+        error: "Passkey assertion must pass before completing authentication",
+      });
     }
 
     const reauthIntervalMinutes =

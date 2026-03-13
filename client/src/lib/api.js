@@ -212,11 +212,15 @@ export const api = {
   meetEndSession: (sessionId) =>
     request(`/meet/session/${sessionId}/end`, { method: "POST" }),
 
+  meetCurrentSessions: () => request("/meet/sessions/current"),
+
   telegramCompleteLink: (token) =>
     request("/telegram/complete-link", {
       method: "POST",
       body: JSON.stringify({ token }),
     }),
+
+  telegramCurrentSessions: () => request("/telegram/sessions/current"),
 
   telegramStartAuth: (code) =>
     request("/telegram/mobile/start-auth", {
@@ -247,6 +251,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code, livenessSessionId }),
     }),
+
+  discordCurrentSessions: () => request("/discord/sessions/current"),
 
   enrollStart: () => request("/enroll/start", { method: "POST" }),
 

@@ -333,24 +333,7 @@ export default function App() {
         title="Google Meet"
         kicker=""
       >
-        <CategoryScreen
-          title="Google Meet"
-          description="Use this when you want to verify people in a live Google Meet flow. Hosts create the session and participants join with the shared meet code."
-          backLabel="Back to Home"
-          onBack={() => navigate("/home")}
-          actions={[
-            {
-              kicker: "Meet",
-              title: "Make a Meet",
-              onClick: () => navigate("/meet/host"),
-            },
-            {
-              kicker: "Meet",
-              title: "Join a Meet",
-              onClick: () => navigate("/meet/join"),
-            },
-          ]}
-        />
+        <MeetOverviewScreen />
       </MainShell>
     );
   }
@@ -363,24 +346,7 @@ export default function App() {
         title="Bots"
         kicker=""
       >
-        <CategoryScreen
-          title="Bots"
-          description="Use this when a Telegram or Discord bot gives you a 4-character code and you need to complete identity verification for that bot session."
-          backLabel="Back to Home"
-          onBack={() => navigate("/home")}
-          actions={[
-            {
-              kicker: "Telegram",
-              title: "Telegram Bot",
-              onClick: () => navigate("/telegram-auth"),
-            },
-            {
-              kicker: "Discord",
-              title: "Discord Bot",
-              onClick: () => navigate("/discord-auth"),
-            },
-          ]}
-        />
+        <BotsOverviewScreen />
       </MainShell>
     );
   }
@@ -1850,6 +1816,254 @@ function CategoryScreen({ title, description, actions, backLabel, onBack }) {
       </div>
     </div>
   );
+}
+
+function MeetOverviewScreen() {
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    api
+      .meetCurrentSessions()
+      .then((items) => {
+        if (!cancelled) setSessions(items);
+      })
+      .catch(() => {
+        if (!cancelled) setSessions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="stack-lg">
+      <button className="back-link" onClick={() => navigate("/home")}>
+        ← Back to Home
+      </button>
+      <div className="surface-block stack">
+        <h2 className="section-title">Google Meet</h2>
+        <p className="page-copy">
+          Use this when you want to verify people in a live Google Meet flow.
+          Hosts create the session and participants join with the shared meet
+          code.
+        </p>
+      </div>
+      <div className="stack">
+        <ActionCard
+          kicker="Meet"
+          title="Make a Meet"
+          onClick={() => navigate("/meet/host")}
+        />
+        <ActionCard
+          kicker="Meet"
+          title="Join a Meet"
+          onClick={() => navigate("/meet/join")}
+        />
+      </div>
+      <SessionSection
+        title="Current live meets"
+        description="Active Meet sessions where you are either the host or a participant."
+        loading={loading}
+        emptyMessage="You are not currently in any active Meet sessions."
+        items={sessions}
+        renderItem={(session) => (
+          <SessionListItem
+            key={session.sessionId}
+            title={session.meetingCode}
+            subtitle={`${session.role === "host" ? "Host" : "Participant"} · Reverify every ${session.reauthIntervalMinutes} min`}
+            meta={
+              session.verificationExpiresAt
+                ? `Valid until ${formatDateTime(session.verificationExpiresAt)}`
+                : `Started ${formatDateTime(session.startedAt)}`
+            }
+            status={
+              session.role === "host" ? "verified" : session.participantStatus
+            }
+            code={session.meetingCode}
+          />
+        )}
+      />
+    </div>
+  );
+}
+
+function BotsOverviewScreen() {
+  const [telegramSessions, setTelegramSessions] = useState([]);
+  const [discordSessions, setDiscordSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.allSettled([
+      api.telegramCurrentSessions(),
+      api.discordCurrentSessions(),
+    ])
+      .then(([telegramResult, discordResult]) => {
+        if (cancelled) return;
+        setTelegramSessions(
+          telegramResult.status === "fulfilled" ? telegramResult.value : [],
+        );
+        setDiscordSessions(
+          discordResult.status === "fulfilled" ? discordResult.value : [],
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="stack-lg">
+      <button className="back-link" onClick={() => navigate("/home")}>
+        ← Back to Home
+      </button>
+      <div className="surface-block stack">
+        <h2 className="section-title">Bots</h2>
+        <p className="page-copy">
+          Use this when a Telegram or Discord bot gives you a 4-character code
+          and you need to complete identity verification for that bot session.
+        </p>
+      </div>
+      <div className="stack">
+        <ActionCard
+          kicker="Telegram"
+          title="Telegram Bot"
+          onClick={() => navigate("/telegram-auth")}
+        />
+        <ActionCard
+          kicker="Discord"
+          title="Discord Bot"
+          onClick={() => navigate("/discord-auth")}
+        />
+      </div>
+      <SessionSection
+        title="Current Telegram sessions"
+        description="Active Telegram sessions where your linked Telegram account is currently participating."
+        loading={loading}
+        emptyMessage="No active Telegram sessions found for your linked account."
+        items={telegramSessions}
+        renderItem={(session) => (
+          <SessionListItem
+            key={session.sessionId}
+            title={
+              session.displayName || session.telegramUsername || session.chatId
+            }
+            subtitle={`Chat ${session.chatId}${session.meetCode ? ` · Meet ${session.meetCode}` : ""}`}
+            meta={
+              session.verificationExpiresAt
+                ? `Valid until ${formatDateTime(session.verificationExpiresAt)}`
+                : `Started ${formatDateTime(session.startedAt)}`
+            }
+            status={session.participantStatus}
+            code={
+              session.telegramUsername ? `@${session.telegramUsername}` : null
+            }
+          />
+        )}
+      />
+      <SessionSection
+        title="Current Discord sessions"
+        description="Active Discord sessions where your linked Discord account is currently participating."
+        loading={loading}
+        emptyMessage="No active Discord sessions found for your linked account."
+        items={discordSessions}
+        renderItem={(session) => (
+          <SessionListItem
+            key={session.sessionId}
+            title={
+              session.displayName ||
+              session.discordUsername ||
+              session.channelId
+            }
+            subtitle={`Channel ${session.channelId}${session.meetCode ? ` · Meet ${session.meetCode}` : ""}`}
+            meta={
+              session.verificationExpiresAt
+                ? `Valid until ${formatDateTime(session.verificationExpiresAt)}`
+                : `Started ${formatDateTime(session.startedAt)}`
+            }
+            status={session.participantStatus}
+            code={
+              session.discordUsername ? `@${session.discordUsername}` : null
+            }
+          />
+        )}
+      />
+    </div>
+  );
+}
+
+function SessionSection({
+  title,
+  description,
+  loading,
+  emptyMessage,
+  items,
+  renderItem,
+}) {
+  return (
+    <div className="surface-block stack">
+      <div className="stack" style={{ gap: 6 }}>
+        <h2 className="section-title">{title}</h2>
+        <p className="page-copy">{description}</p>
+      </div>
+      {loading ? <LoadingState message="Loading active sessions..." /> : null}
+      {!loading && !items.length ? (
+        <div className="list-empty">{emptyMessage}</div>
+      ) : null}
+      {!loading && items.length ? (
+        <div className="list">{items.map(renderItem)}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function SessionListItem({ title, subtitle, meta, status, code }) {
+  return (
+    <div className="list-item">
+      <div className="stack" style={{ gap: 6, minWidth: 0 }}>
+        <div
+          className="inline-actions"
+          style={{ justifyContent: "space-between" }}
+        >
+          <div className="list-item__title">{title}</div>
+          <StatusTag status={status} />
+        </div>
+        <div className="list-item__subtitle">{subtitle}</div>
+        <div className="list-item__subtitle">{meta}</div>
+      </div>
+      {code ? <div className="code-chip">{code}</div> : null}
+    </div>
+  );
+}
+
+function StatusTag({ status }) {
+  const tone = [
+    "verified",
+    "pending",
+    "unlinked",
+    "expired",
+    "failed",
+  ].includes(status)
+    ? status
+    : "pending";
+  return <span className={`status-tag status-tag--${tone}`}>{tone}</span>;
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString();
 }
 
 function LoadingState({ message }) {

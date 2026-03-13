@@ -431,6 +431,13 @@ a {
     gap: 10px;
 }
 
+.list-empty {
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--muted);
+}
+
 .list-item {
     display: flex;
     gap: 14px;
