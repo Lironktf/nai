@@ -400,6 +400,71 @@ router.get("/sessions/current", requireAuth, async (req, res) => {
   return res.json(items);
 });
 
+router.post("/session/:sessionId/cancel", requireAuth, async (req, res) => {
+  const { sessionId } = req.params;
+  const { userId } = req.user;
+
+  const { data: session, error: sessionError } = await supabase
+    .from("discord_verification_sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (sessionError) {
+    console.error(
+      "[discord/session/cancel] session lookup error:",
+      sessionError,
+    );
+    return res.status(500).json({ error: "Failed to load Discord session" });
+  }
+
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (session.status !== "active") {
+    return res.status(409).json({ error: "Discord session is not active" });
+  }
+
+  const { data: accountLinks, error: linksError } = await supabase
+    .from("discord_account_links")
+    .select("discord_user_id")
+    .eq("nai_user_id", userId);
+
+  if (linksError) {
+    console.error("[discord/session/cancel] link lookup error:", linksError);
+    return res
+      .status(500)
+      .json({ error: "Failed to load linked Discord account" });
+  }
+
+  const discordUserIds = (accountLinks ?? []).map((row) => row.discord_user_id);
+  if (!discordUserIds.length) {
+    return res.status(404).json({ error: "No linked Discord account found" });
+  }
+
+  const { data: removed, error: deleteError } = await supabase
+    .from("discord_session_participants")
+    .delete()
+    .eq("discord_session_id", sessionId)
+    .in("discord_user_id", discordUserIds)
+    .select("id, discord_user_id");
+
+  if (deleteError) {
+    console.error(
+      "[discord/session/cancel] participant delete error:",
+      deleteError,
+    );
+    return res.status(500).json({ error: "Failed to cancel Discord session" });
+  }
+
+  if (!removed?.length) {
+    return res
+      .status(404)
+      .json({ error: "You are not in this Discord session" });
+  }
+
+  setImmediate(() => refreshStatusMessage(session).catch(console.error));
+  return res.json({ ok: true, removedCount: removed.length });
+});
+
 async function getParticipantByCode(rawCode) {
   const code = normalizeCode(rawCode);
   if (!CODE_RE.test(code)) return { code, participant: null, session: null };
@@ -490,11 +555,9 @@ router.post("/mobile/complete-auth", requireAuth, async (req, res) => {
     .single();
 
   if (!user?.profile_photo_s3_key) {
-    return res
-      .status(422)
-      .json({
-        error: "No reference face photo found. Please complete KYC first.",
-      });
+    return res.status(422).json({
+      error: "No reference face photo found. Please complete KYC first.",
+    });
   }
 
   let liveness;
@@ -528,12 +591,10 @@ router.post("/mobile/complete-auth", requireAuth, async (req, res) => {
       .eq("id", participant.id);
     if (session)
       setImmediate(() => refreshStatusMessage(session).catch(console.error));
-    return res
-      .status(422)
-      .json({
-        error:
-          "Liveness or face match failed. Generate a new code from Discord and retry.",
-      });
+    return res.status(422).json({
+      error:
+        "Liveness or face match failed. Generate a new code from Discord and retry.",
+    });
   }
 
   const nowIso = new Date().toISOString();

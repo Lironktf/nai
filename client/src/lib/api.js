@@ -213,6 +213,8 @@ export const api = {
     request(`/meet/session/${sessionId}/end`, { method: "POST" }),
 
   meetCurrentSessions: () => request("/meet/sessions/current"),
+  meetCancelSession: (sessionId) =>
+    request(`/meet/session/${sessionId}/cancel`, { method: "POST" }),
 
   telegramCompleteLink: (token) =>
     request("/telegram/complete-link", {
@@ -221,6 +223,8 @@ export const api = {
     }),
 
   telegramCurrentSessions: () => request("/telegram/sessions/current"),
+  telegramCancelSession: (sessionId) =>
+    request(`/telegram/session/${sessionId}/cancel`, { method: "POST" }),
 
   telegramStartAuth: (code) =>
     request("/telegram/mobile/start-auth", {
@@ -253,6 +257,8 @@ export const api = {
     }),
 
   discordCurrentSessions: () => request("/discord/sessions/current"),
+  discordCancelSession: (sessionId) =>
+    request(`/discord/session/${sessionId}/cancel`, { method: "POST" }),
 
   enrollStart: () => request("/enroll/start", { method: "POST" }),
 

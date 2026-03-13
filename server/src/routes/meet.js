@@ -496,6 +496,84 @@ router.get("/session/:sessionId", requireAuth, async (req, res) => {
   });
 });
 
+// POST /meet/session/:sessionId/cancel
+// Hosts end the session; participants leave the active session.
+router.post("/session/:sessionId/cancel", requireAuth, async (req, res) => {
+  const { sessionId } = req.params;
+  const { userId } = req.user;
+
+  const { data: session, error: sessionError } = await supabase
+    .from("meeting_sessions")
+    .select("id, host_user_id, status")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (sessionError) {
+    console.error("[meet/cancel] session lookup error:", sessionError);
+    return res.status(500).json({ error: "Failed to load meeting session" });
+  }
+
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (session.status !== "active") {
+    return res.status(409).json({ error: "Meeting session is not active" });
+  }
+
+  if (session.host_user_id === userId) {
+    const { error } = await supabase
+      .from("meeting_sessions")
+      .update({ status: "ended", ended_at: new Date().toISOString() })
+      .eq("id", sessionId)
+      .eq("status", "active");
+
+    if (error) {
+      console.error("[meet/cancel] host end error:", error);
+      return res.status(500).json({ error: "Failed to end meeting session" });
+    }
+
+    await recordMeetingEvent({
+      sessionId,
+      eventType: "SESSION_ENDED",
+      metadata: { hostUserId: userId, source: "web-current-sessions" },
+    });
+
+    await emitMeetingEvent(sessionId, "meeting:ended", { sessionId });
+    return res.json({ ok: true, action: "ended" });
+  }
+
+  const { data: participant, error: participantError } = await supabase
+    .from("meeting_participants")
+    .delete()
+    .eq("meeting_session_id", sessionId)
+    .eq("nai_user_id", userId)
+    .select("id")
+    .maybeSingle();
+
+  if (participantError) {
+    console.error("[meet/cancel] participant delete error:", participantError);
+    return res.status(500).json({ error: "Failed to leave meeting session" });
+  }
+
+  if (!participant) {
+    return res
+      .status(404)
+      .json({ error: "You are not in this meeting session" });
+  }
+
+  await recordMeetingEvent({
+    sessionId,
+    participantId: participant.id,
+    eventType: "PARTICIPANT_LEFT",
+    metadata: { userId, source: "web-current-sessions" },
+  });
+
+  await emitMeetingEvent(sessionId, "meeting:participants-updated", {
+    reason: "participant-left",
+    participantId: participant.id,
+  });
+
+  return res.json({ ok: true, action: "left" });
+});
+
 // GET /meet/session/:sessionId/participants
 router.get(
   "/session/:sessionId/participants",

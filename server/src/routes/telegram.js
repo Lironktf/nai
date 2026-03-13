@@ -332,6 +332,73 @@ router.get("/sessions/current", requireAuth, async (req, res) => {
   return res.json(items);
 });
 
+router.post("/session/:sessionId/cancel", requireAuth, async (req, res) => {
+  const { sessionId } = req.params;
+  const { userId } = req.user;
+
+  const { data: session, error: sessionError } = await supabase
+    .from("telegram_verification_sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (sessionError) {
+    console.error(
+      "[telegram/session/cancel] session lookup error:",
+      sessionError,
+    );
+    return res.status(500).json({ error: "Failed to load Telegram session" });
+  }
+
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (session.status !== "active") {
+    return res.status(409).json({ error: "Telegram session is not active" });
+  }
+
+  const { data: accountLinks, error: linksError } = await supabase
+    .from("telegram_account_links")
+    .select("telegram_user_id")
+    .eq("nai_user_id", userId);
+
+  if (linksError) {
+    console.error("[telegram/session/cancel] link lookup error:", linksError);
+    return res
+      .status(500)
+      .json({ error: "Failed to load linked Telegram account" });
+  }
+
+  const telegramUserIds = (accountLinks ?? []).map(
+    (row) => row.telegram_user_id,
+  );
+  if (!telegramUserIds.length) {
+    return res.status(404).json({ error: "No linked Telegram account found" });
+  }
+
+  const { data: removed, error: deleteError } = await supabase
+    .from("telegram_session_participants")
+    .delete()
+    .eq("telegram_session_id", sessionId)
+    .in("telegram_user_id", telegramUserIds)
+    .select("id, telegram_user_id");
+
+  if (deleteError) {
+    console.error(
+      "[telegram/session/cancel] participant delete error:",
+      deleteError,
+    );
+    return res.status(500).json({ error: "Failed to cancel Telegram session" });
+  }
+
+  if (!removed?.length) {
+    return res
+      .status(404)
+      .json({ error: "You are not in this Telegram session" });
+  }
+
+  setImmediate(() => refreshStatusMessage(session).catch(console.error));
+  return res.json({ ok: true, removedCount: removed.length });
+});
+
 async function getParticipantByCode(rawCode) {
   const code = normalizeCode(rawCode);
   if (!CODE_RE.test(code)) return { code, participant: null, session: null };

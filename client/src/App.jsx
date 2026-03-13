@@ -1821,26 +1821,51 @@ function CategoryScreen({ title, description, actions, backLabel, onBack }) {
 function MeetOverviewScreen() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [cancellingId, setCancellingId] = useState(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  function loadSessions(cancelled = false) {
+    if (!cancelled) {
+      setLoading(true);
+      setError("");
+    }
 
     api
       .meetCurrentSessions()
       .then((items) => {
         if (!cancelled) setSessions(items);
       })
-      .catch(() => {
+      .catch((err) => {
         if (!cancelled) setSessions([]);
+        if (!cancelled) setError(err.message || "Failed to load Meet sessions");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadSessions(cancelled);
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function handleCancel(sessionId) {
+    setCancellingId(sessionId);
+    setError("");
+    try {
+      await api.meetCancelSession(sessionId);
+      loadSessions(false);
+    } catch (err) {
+      setError(err.message || "Failed to cancel Meet session");
+    } finally {
+      setCancellingId(null);
+    }
+  }
 
   return (
     <div className="stack-lg">
@@ -1873,6 +1898,7 @@ function MeetOverviewScreen() {
         loading={loading}
         emptyMessage="You are not currently in any active Meet sessions."
         items={sessions}
+        error={error}
         renderItem={(session) => (
           <SessionListItem
             key={session.sessionId}
@@ -1887,6 +1913,9 @@ function MeetOverviewScreen() {
               session.role === "host" ? "verified" : session.participantStatus
             }
             code={session.meetingCode}
+            actionLabel="Cancel"
+            actionBusy={cancellingId === session.sessionId}
+            onAction={() => handleCancel(session.sessionId)}
           />
         )}
       />
@@ -1898,9 +1927,14 @@ function BotsOverviewScreen() {
   const [telegramSessions, setTelegramSessions] = useState([]);
   const [discordSessions, setDiscordSessions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [cancelling, setCancelling] = useState({ type: null, id: null });
 
-  useEffect(() => {
-    let cancelled = false;
+  function loadSessions(cancelled = false) {
+    if (!cancelled) {
+      setLoading(true);
+      setError("");
+    }
 
     Promise.allSettled([
       api.telegramCurrentSessions(),
@@ -1914,15 +1948,59 @@ function BotsOverviewScreen() {
         setDiscordSessions(
           discordResult.status === "fulfilled" ? discordResult.value : [],
         );
+        if (
+          telegramResult.status === "rejected" ||
+          discordResult.status === "rejected"
+        ) {
+          const message =
+            (telegramResult.status === "rejected" &&
+              telegramResult.reason?.message) ||
+            (discordResult.status === "rejected" &&
+              discordResult.reason?.message) ||
+            "Failed to load bot sessions";
+          setError(message);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadSessions(cancelled);
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function handleTelegramCancel(sessionId) {
+    setCancelling({ type: "telegram", id: sessionId });
+    setError("");
+    try {
+      await api.telegramCancelSession(sessionId);
+      loadSessions(false);
+    } catch (err) {
+      setError(err.message || "Failed to cancel Telegram session");
+    } finally {
+      setCancelling({ type: null, id: null });
+    }
+  }
+
+  async function handleDiscordCancel(sessionId) {
+    setCancelling({ type: "discord", id: sessionId });
+    setError("");
+    try {
+      await api.discordCancelSession(sessionId);
+      loadSessions(false);
+    } catch (err) {
+      setError(err.message || "Failed to cancel Discord session");
+    } finally {
+      setCancelling({ type: null, id: null });
+    }
+  }
 
   return (
     <div className="stack-lg">
@@ -1954,6 +2032,7 @@ function BotsOverviewScreen() {
         loading={loading}
         emptyMessage="No active Telegram sessions found for your linked account."
         items={telegramSessions}
+        error={error}
         renderItem={(session) => (
           <SessionListItem
             key={session.sessionId}
@@ -1970,6 +2049,12 @@ function BotsOverviewScreen() {
             code={
               session.telegramUsername ? `@${session.telegramUsername}` : null
             }
+            actionLabel="Cancel"
+            actionBusy={
+              cancelling.type === "telegram" &&
+              cancelling.id === session.sessionId
+            }
+            onAction={() => handleTelegramCancel(session.sessionId)}
           />
         )}
       />
@@ -1979,6 +2064,7 @@ function BotsOverviewScreen() {
         loading={loading}
         emptyMessage="No active Discord sessions found for your linked account."
         items={discordSessions}
+        error={error}
         renderItem={(session) => (
           <SessionListItem
             key={session.sessionId}
@@ -1997,6 +2083,12 @@ function BotsOverviewScreen() {
             code={
               session.discordUsername ? `@${session.discordUsername}` : null
             }
+            actionLabel="Cancel"
+            actionBusy={
+              cancelling.type === "discord" &&
+              cancelling.id === session.sessionId
+            }
+            onAction={() => handleDiscordCancel(session.sessionId)}
           />
         )}
       />
@@ -2010,6 +2102,7 @@ function SessionSection({
   loading,
   emptyMessage,
   items,
+  error,
   renderItem,
 }) {
   return (
@@ -2018,6 +2111,7 @@ function SessionSection({
         <h2 className="section-title">{title}</h2>
         <p className="page-copy">{description}</p>
       </div>
+      {error ? <Notice tone="danger">{error}</Notice> : null}
       {loading ? <LoadingState message="Loading active sessions..." /> : null}
       {!loading && !items.length ? (
         <div className="list-empty">{emptyMessage}</div>
@@ -2029,7 +2123,16 @@ function SessionSection({
   );
 }
 
-function SessionListItem({ title, subtitle, meta, status, code }) {
+function SessionListItem({
+  title,
+  subtitle,
+  meta,
+  status,
+  code,
+  actionLabel,
+  actionBusy = false,
+  onAction,
+}) {
   return (
     <div className="list-item">
       <div className="stack" style={{ gap: 6, minWidth: 0 }}>
@@ -2043,7 +2146,19 @@ function SessionListItem({ title, subtitle, meta, status, code }) {
         <div className="list-item__subtitle">{subtitle}</div>
         <div className="list-item__subtitle">{meta}</div>
       </div>
-      {code ? <div className="code-chip">{code}</div> : null}
+      <div className="stack" style={{ gap: 10, alignItems: "end" }}>
+        {code ? <div className="code-chip">{code}</div> : null}
+        {onAction ? (
+          <AppButton
+            variant="ghost"
+            className="button--inline"
+            disabled={actionBusy}
+            onClick={onAction}
+          >
+            {actionBusy ? "Cancelling..." : actionLabel}
+          </AppButton>
+        ) : null}
+      </div>
     </div>
   );
 }
