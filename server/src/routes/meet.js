@@ -1314,6 +1314,15 @@ router.post(
 
     meetingAuthProgress.delete(key);
 
+    // Fire-and-forget: issue PresenceCheckpoint if user has a linked wallet.
+    setImmediate(() =>
+      import("../lib/blockchain/checkpoint.js")
+        .then(({ maybeIssuePresenceCheckpoint }) =>
+          maybeIssuePresenceCheckpoint(req.user.userId, "meet"),
+        )
+        .catch(() => {}),
+    );
+
     return res.json({
       ok: true,
       status: "verified",

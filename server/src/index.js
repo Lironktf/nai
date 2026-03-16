@@ -17,6 +17,8 @@ import mobileRouter from "./routes/mobile.js";
 import telegramRouter from "./routes/telegram.js";
 import discordRouter from "./routes/discord.js";
 import meetRouter from "./routes/meet.js";
+import walletRouter from "./routes/wallet.js";
+import attestationRouter from "./routes/attestation.js";
 import { supabase } from "./db/supabase.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -122,6 +124,8 @@ app.use("/mobile", mobileRouter);
 app.use("/telegram", telegramRouter);
 app.use("/discord", discordRouter);
 app.use("/meet", meetRouter);
+app.use("/wallet", walletRouter);
+app.use("/attestation", attestationRouter);
 
 // ── Liveness page (built client static files) ─────────────────────────────────
 // The mobile WebView opens /liveness?sessionId=...&identityPoolId=...&region=...

@@ -645,6 +645,15 @@ router.post("/mobile/complete-auth", requireAuth, async (req, res) => {
 
   setImmediate(() => refreshStatusMessage(session).catch(console.error));
 
+  // Fire-and-forget: issue PresenceCheckpoint if user has a linked wallet.
+  setImmediate(() =>
+    import("../lib/blockchain/checkpoint.js")
+      .then(({ maybeIssuePresenceCheckpoint }) =>
+        maybeIssuePresenceCheckpoint(userId, "discord"),
+      )
+      .catch(() => {}),
+  );
+
   return res.json({
     ok: true,
     status: "verified",
