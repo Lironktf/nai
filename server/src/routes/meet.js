@@ -17,8 +17,8 @@ import {
 const router = Router();
 
 const DEFAULT_REAUTH_MINUTES = 10;
-const MIN_REAUTH_MINUTES = 5;
-const MAX_REAUTH_MINUTES = 60;
+const MIN_REAUTH_MINUTES = 1;
+const MAX_REAUTH_MINUTES = 99;
 
 // Single-node in-memory auth progress for meeting auth state.
 // Key: `${sessionId}:${userId}`
@@ -42,6 +42,8 @@ const joinSchema = z.object({
 const completeAuthSchema = z.object({
   status: z.enum(["verified", "failed"]).default("verified"),
   failureReason: z.string().min(1).max(240).optional(),
+  verificationSource: z.enum(["site", "phone", "extension"]).optional(),
+  attemptId: z.string().min(1).max(120).optional(),
 });
 
 const reverifySchema = z.object({
@@ -167,9 +169,14 @@ function mapParticipantRow(row) {
     lastVerifiedAt: row.last_verified_at,
     verificationExpiresAt: row.verification_expires_at,
     failureReason: row.failure_reason,
+    verificationSource: row.verification_source ?? null,
     joinedAt: row.joined_at,
     updatedAt: row.updated_at,
   };
+}
+
+function createAttemptId() {
+  return `mea_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 }
 
 // POST /meet/session/start
@@ -264,7 +271,7 @@ router.get("/session/status", async (req, res) => {
     const { data: participantRows, error: participantsError } = await supabase
       .from("meeting_participants")
       .select(
-        "id, display_name, status, last_verified_at, verification_expires_at, failure_reason, nai_user_id, joined_at, updated_at",
+        "id, display_name, status, last_verified_at, verification_expires_at, failure_reason, verification_source, nai_user_id, joined_at, updated_at",
       )
       .eq("meeting_session_id", session.id)
       .order("updated_at", { ascending: false });
@@ -382,7 +389,7 @@ router.get("/sessions/current", requireAuth, async (req, res) => {
   const { data: participantRows, error: participantError } = await supabase
     .from("meeting_participants")
     .select(
-      "meeting_session_id, status, verification_expires_at, last_verified_at, joined_at, display_name",
+      "meeting_session_id, status, verification_expires_at, last_verified_at, joined_at, display_name, verification_source",
     )
     .eq("nai_user_id", userId)
     .order("joined_at", { ascending: false });
@@ -446,6 +453,7 @@ router.get("/sessions/current", requireAuth, async (req, res) => {
       verificationExpiresAt: null,
       lastVerifiedAt: null,
       displayName: null,
+      verificationSource: "site",
     });
   }
 
@@ -464,6 +472,7 @@ router.get("/sessions/current", requireAuth, async (req, res) => {
       verificationExpiresAt: participant.verification_expires_at,
       lastVerifiedAt: participant.last_verified_at,
       displayName: participant.display_name,
+      verificationSource: participant.verification_source ?? null,
     });
   }
 
@@ -493,6 +502,48 @@ router.get("/session/:sessionId", requireAuth, async (req, res) => {
     startedAt: session.started_at,
     endedAt: session.ended_at,
     hostUserId: session.host_user_id,
+  });
+});
+
+// GET /meet/session/:sessionId/self
+// Returns the current authenticated user's participant state for this session.
+router.get("/session/:sessionId/self", requireAuth, async (req, res) => {
+  const { sessionId } = req.params;
+
+  const { data: session, error: sessionError } = await supabase
+    .from("meeting_sessions")
+    .select("id, meeting_code, status, reauth_interval_minutes, host_user_id")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (sessionError) {
+    console.error("[meet/self] session lookup error:", sessionError);
+    return res.status(500).json({ error: "Failed to load session" });
+  }
+
+  if (!session) return res.status(404).json({ error: "Session not found" });
+
+  const { data: participant, error: participantError } = await supabase
+    .from("meeting_participants")
+    .select(
+      "id, meeting_session_id, nai_user_id, display_name, status, last_verified_at, verification_expires_at, failure_reason, verification_source, joined_at, updated_at",
+    )
+    .eq("meeting_session_id", sessionId)
+    .eq("nai_user_id", req.user.userId)
+    .maybeSingle();
+
+  if (participantError) {
+    console.error("[meet/self] participant lookup error:", participantError);
+    return res.status(500).json({ error: "Failed to load participant" });
+  }
+
+  return res.json({
+    sessionId: session.id,
+    meetingCode: session.meeting_code,
+    sessionStatus: session.status,
+    reauthIntervalMinutes: session.reauth_interval_minutes,
+    isHost: session.host_user_id === req.user.userId,
+    participant: participant ? mapParticipantRow(participant) : null,
   });
 });
 
@@ -600,6 +651,7 @@ router.get(
       last_verified_at,
       verification_expires_at,
       failure_reason,
+      verification_source,
       joined_at,
       updated_at,
       users (legal_name, email)
@@ -873,6 +925,100 @@ router.post(
   },
 );
 
+// POST /meet/session/:sessionId/extension/start
+// Binds an extension verification attempt to this session/user.
+router.post(
+  "/session/:sessionId/extension/start",
+  requireAuth,
+  async (req, res) => {
+    const { sessionId } = req.params;
+    const participantAccess = await ensureParticipantAccess(
+      sessionId,
+      req.user.userId,
+    );
+    if (participantAccess.error) {
+      return res
+        .status(participantAccess.error.status)
+        .json({ error: participantAccess.error.message });
+    }
+
+    const attemptId = createAttemptId();
+    const key = authProgressKey(sessionId, req.user.userId);
+    const current = meetingAuthProgress.get(key) ?? {};
+    meetingAuthProgress.set(key, {
+      ...current,
+      attemptId,
+      verificationSource: "extension",
+      invalidated: false,
+      invalidationReason: null,
+      extensionStartedAt: new Date().toISOString(),
+    });
+
+    return res.json({ ok: true, attemptId });
+  },
+);
+
+// POST /meet/session/:sessionId/extension/invalidate
+// Invalidates an in-progress extension attempt if the user leaves the bound Meet tab.
+router.post(
+  "/session/:sessionId/extension/invalidate",
+  requireAuth,
+  async (req, res) => {
+    const { sessionId } = req.params;
+    const reason = String(req.body?.reason || "Verification invalidated").slice(
+      0,
+      240,
+    );
+    const participantAccess = await ensureParticipantAccess(
+      sessionId,
+      req.user.userId,
+    );
+    if (participantAccess.error) {
+      return res
+        .status(participantAccess.error.status)
+        .json({ error: participantAccess.error.message });
+    }
+
+    const { participant } = participantAccess;
+    const key = authProgressKey(sessionId, req.user.userId);
+    const current = meetingAuthProgress.get(key) ?? {};
+    meetingAuthProgress.set(key, {
+      ...current,
+      invalidated: true,
+      invalidationReason: reason,
+      invalidatedAt: new Date().toISOString(),
+    });
+
+    await supabase
+      .from("meeting_participants")
+      .update({
+        status: "failed",
+        failure_reason: reason,
+        last_verified_at: null,
+        verification_expires_at: null,
+      })
+      .eq("id", participant.id);
+
+    await recordMeetingEvent({
+      sessionId,
+      participantId: participant.id,
+      eventType: "AUTH_INVALIDATED",
+      metadata: {
+        userId: req.user.userId,
+        verificationSource: "extension",
+        reason,
+      },
+    });
+
+    await emitMeetingEvent(sessionId, "meeting:participants-updated", {
+      reason: "auth-invalidated",
+      participantId: participant.id,
+    });
+
+    return res.json({ ok: true, status: "failed" });
+  },
+);
+
 // POST /meet/session/:sessionId/liveness/complete
 router.post(
   "/session/:sessionId/liveness/complete",
@@ -1067,6 +1213,7 @@ router.post(
           failure_reason: parsed.data.failureReason ?? "Authentication failed",
           last_verified_at: null,
           verification_expires_at: null,
+          verification_source: parsed.data.verificationSource ?? null,
         })
         .eq("id", participant.id);
 
@@ -1077,6 +1224,7 @@ router.post(
         metadata: {
           userId: req.user.userId,
           failureReason: parsed.data.failureReason ?? "Authentication failed",
+          verificationSource: parsed.data.verificationSource ?? "site",
         },
       });
 
@@ -1087,6 +1235,15 @@ router.post(
 
       meetingAuthProgress.delete(key);
       return res.json({ ok: true, status: "failed" });
+    }
+
+    if (progress.invalidated) {
+      meetingAuthProgress.delete(key);
+      return res.status(409).json({
+        error:
+          progress.invalidationReason ??
+          "Extension verification was invalidated. Restart verification.",
+      });
     }
 
     if (!progress.livenessPassed) {
@@ -1112,6 +1269,18 @@ router.post(
       session.reauth_interval_minutes ?? DEFAULT_REAUTH_MINUTES;
     const nowIso = new Date().toISOString();
     const expiresAtIso = toIsoWithMinutes(reauthIntervalMinutes);
+    const verificationSource =
+      parsed.data.verificationSource ?? progress.verificationSource ?? "site";
+
+    if (
+      verificationSource === "extension" &&
+      (!parsed.data.attemptId || parsed.data.attemptId !== progress.attemptId)
+    ) {
+      return res.status(409).json({
+        error:
+          "Extension verification attempt is not valid anymore. Restart verification.",
+      });
+    }
 
     await supabase
       .from("meeting_participants")
@@ -1120,6 +1289,7 @@ router.post(
         last_verified_at: nowIso,
         verification_expires_at: expiresAtIso,
         failure_reason: null,
+        verification_source: verificationSource,
       })
       .eq("id", participant.id);
 
@@ -1133,6 +1303,7 @@ router.post(
         faceMatchScore: progress.faceMatchScore ?? null,
         reauthIntervalMinutes,
         expiresAt: expiresAtIso,
+        verificationSource,
       },
     });
 
@@ -1148,6 +1319,7 @@ router.post(
       status: "verified",
       verificationExpiresAt: expiresAtIso,
       reauthIntervalMinutes,
+      verificationSource,
     });
   },
 );

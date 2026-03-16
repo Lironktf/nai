@@ -86,6 +86,24 @@ router.post("/kyc/start", requireAuth, async (req, res) => {
 
   try {
     const { inquiryId, sessionToken } = await createInquiry(userId);
+    const { error: ivError } = await supabase
+      .from("identity_verifications")
+      .upsert(
+        {
+          user_id: userId,
+          persona_inquiry_id: inquiryId,
+          status: "pending",
+        },
+        { onConflict: "persona_inquiry_id" },
+      );
+
+    if (ivError) {
+      console.error("identity_verifications seed error:", ivError);
+      return res
+        .status(500)
+        .json({ error: "Failed to initialize identity verification record" });
+    }
+
     return res.json({ inquiryId, sessionToken });
   } catch (err) {
     console.error("Persona createInquiry error:", err.message);

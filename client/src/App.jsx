@@ -193,6 +193,14 @@ export default function App() {
   }
 
   if (bootState === "guest") {
+    if (pathname === "/meet/extension-auth") {
+      return (
+        <CenteredShell>
+          <MeetExtensionAuthScreen />
+        </CenteredShell>
+      );
+    }
+
     if (pathname === "/login") {
       return (
         <AuthShell
@@ -436,6 +444,14 @@ export default function App() {
     );
   }
 
+  if (pathname === "/meet/extension-auth") {
+    return (
+      <CenteredShell>
+        <MeetExtensionAuthScreen />
+      </CenteredShell>
+    );
+  }
+
   if (pathname === "/telegram-auth") {
     return (
       <MainShell
@@ -493,7 +509,7 @@ function WelcomeScreen() {
           <h1 className="hero-title">NAI</h1>
           <p className="hero-copy">
             Mutual identity verification. Know exactly who you&apos;re talking
-            to across meetings, chat bots, and direct requests.
+            to across meetings, chats, auth points, and direct requests.
           </p>
         </div>
         <div className="actions">
@@ -771,10 +787,10 @@ function KycScreen({ onComplete }) {
         return;
       }
       startPolling();
-      setStep("persona");
+      setStep("waiting");
     } catch {
       startPolling();
-      setStep("persona");
+      setStep("waiting");
     }
   }
 
@@ -823,12 +839,19 @@ function KycScreen({ onComplete }) {
       <div className="stack">
         <h1 className="page-title">Verify your identity</h1>
         <p className="page-copy">
-          Persona opens inside this page. Once it completes, you move into the
-          post-KYC liveness confirmation path.
+          {step === "waiting"
+            ? "Persona is complete. We are waiting for backend confirmation before moving into the post-KYC liveness path."
+            : "Persona opens inside this page. Once it completes, you move into the post-KYC liveness confirmation path."}
         </p>
       </div>
       <div className="surface-block stack">
-        <LoadingState message="Opening Persona verification..." />
+        <LoadingState
+          message={
+            step === "waiting"
+              ? "Waiting for Persona approval to sync..."
+              : "Opening Persona verification..."
+          }
+        />
         <p className="timeline-note">
           We still sync inquiry state and poll the backend so the flow can
           recover cleanly if callbacks or webhooks lag.
@@ -1409,6 +1432,9 @@ function MeetHostScreen() {
   if (step === "active" && sessionData) {
     return (
       <div className="stack-lg">
+        <button className="back-link" onClick={() => navigate("/meet")}>
+          ← Back to Google Meet
+        </button>
         <div className="surface-block surface-block--success stack">
           <div className="pill">You are verified</div>
           <div className="code-chip">{sessionData.meetingCode}</div>
@@ -1459,8 +1485,8 @@ function MeetHostScreen() {
         <FormField
           label="Reverify interval (minutes)"
           type="number"
-          min="5"
-          max="60"
+          min="1"
+          max="99"
           value={reauthMinutes}
           onChange={(event) => setReauthMinutes(event.target.value)}
           hint="Same reverify concept as the mobile Meet host flow."
@@ -1630,6 +1656,335 @@ function MeetAuthenticateScreen({ sessionId, meetingCode }) {
           Back to Home
         </AppButton>
       ) : null}
+    </div>
+  );
+}
+
+function MeetExtensionAuthScreen() {
+  const { sessionId, meetingCode, bootstrapToken } = useHashRoute().params;
+  const [step, setStep] = useState("loading");
+  const [error, setError] = useState("");
+  const [livenessSessionId, setLivenessSessionId] = useState(null);
+  const [verification, setVerification] = useState(null);
+  const invalidatedRef = useRef(false);
+  const attemptIdRef = useRef(null);
+  const bootstrapRef = useRef(null);
+
+  function requestTokenFromExtension() {
+    window.parent.postMessage(
+      {
+        type: "nai-extension-token-request",
+        sessionId,
+      },
+      "*",
+    );
+  }
+
+  useEffect(() => {
+    if (!sessionId || !meetingCode) {
+      setError("Missing Meet verification context.");
+      setStep("error");
+      return;
+    }
+
+    let cancelled = false;
+
+    async function bootstrap() {
+      if (!getToken() && bootstrapToken) {
+        setToken(bootstrapToken);
+      }
+
+      if (!getToken()) {
+        setStep("signin");
+        return;
+      }
+
+      setError("");
+      setStep("loading");
+
+      try {
+        let self = await api.meetSessionSelf(sessionId);
+        if (!self.participant) {
+          await api.meetJoin(meetingCode);
+          self = await api.meetSessionSelf(sessionId);
+        }
+
+        if (cancelled) return;
+
+        if (self.participant?.status === "verified") {
+          setVerification(self.participant);
+          setStep("done");
+          window.parent.postMessage(
+            {
+              type: "nai-extension-auth-succeeded",
+              sessionId,
+              verificationSource: self.participant.verificationSource ?? "site",
+            },
+            "*",
+          );
+          return;
+        }
+
+        setStep("ready");
+      } catch (err) {
+        if (cancelled) return;
+        if (err.status === 401) {
+          setStep("signin");
+          return;
+        }
+        setError(err.message || "Failed to prepare Meet verification");
+        setStep("error");
+      }
+    }
+
+    bootstrapRef.current = bootstrap;
+    bootstrap();
+    requestTokenFromExtension();
+
+    function handleParentMessage(event) {
+      if (event.data?.type === "nai-extension-invalidated") {
+        invalidatedRef.current = true;
+        setError(
+          event.data.reason ||
+            "Verification was invalidated because you left the Meet tab.",
+        );
+        setStep("invalidated");
+        if (attemptIdRef.current) {
+          api
+            .meetExtensionInvalidate(
+              sessionId,
+              event.data.reason ||
+                "Verification invalidated because you left the Meet tab.",
+            )
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (event.data?.type === "nai-extension-token-response") {
+        if (event.data.token) {
+          setToken(event.data.token);
+          bootstrap();
+        } else {
+          setError("No active NAI session was found. Sign in, then retry.");
+          setStep("signin");
+        }
+      }
+    }
+
+    function handleStorage(event) {
+      if (event.key !== "th_token") return;
+      if (!event.newValue || invalidatedRef.current || cancelled) return;
+      bootstrap();
+    }
+
+    window.addEventListener("message", handleParentMessage);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("message", handleParentMessage);
+      window.removeEventListener("storage", handleStorage);
+      bootstrapRef.current = null;
+    };
+  }, [sessionId, meetingCode, bootstrapToken]);
+
+  async function beginVerification() {
+    setError("");
+    setStep("starting");
+    try {
+      const { attemptId: nextAttemptId } =
+        await api.meetExtensionStart(sessionId);
+      attemptIdRef.current = nextAttemptId;
+      window.parent.postMessage(
+        {
+          type: "nai-extension-attempt-started",
+          sessionId,
+          attemptId: nextAttemptId,
+        },
+        "*",
+      );
+      const { livenessSessionId: nextLivenessSessionId } =
+        await api.meetLivenessStart(sessionId);
+      setLivenessSessionId(nextLivenessSessionId);
+      setStep("liveness");
+    } catch (err) {
+      setError(err.message || "Failed to start extension verification");
+      setStep("error");
+    }
+  }
+
+  async function handleComplete() {
+    if (!livenessSessionId || !attemptIdRef.current) return;
+    setStep("checking");
+    try {
+      const liveness = await api.meetLivenessComplete(
+        sessionId,
+        livenessSessionId,
+      );
+      if (!liveness.livenessPass || !liveness.faceMatchPassed) {
+        await api
+          .meetCompleteAuth(sessionId, {
+            status: "failed",
+            failureReason: "Liveness or face match did not pass",
+            verificationSource: "extension",
+          })
+          .catch(() => {});
+        setError("Liveness or face match failed. Please retry.");
+        setStep("error");
+        window.parent.postMessage(
+          { type: "nai-extension-auth-failed", sessionId, reason: "liveness" },
+          "*",
+        );
+        return;
+      }
+
+      if (invalidatedRef.current) {
+        throw new Error(
+          "Verification was invalidated because you left the Meet tab.",
+        );
+      }
+
+      const result = await api.meetCompleteAuth(sessionId, {
+        status: "verified",
+        verificationSource: "extension",
+        attemptId: attemptIdRef.current,
+      });
+      setVerification(result);
+      setStep("done");
+      window.parent.postMessage(
+        {
+          type: "nai-extension-auth-succeeded",
+          sessionId,
+          verificationSource: result.verificationSource ?? "extension",
+        },
+        "*",
+      );
+    } catch (err) {
+      setError(err.message || "Verification failed");
+      setStep("error");
+      window.parent.postMessage(
+        {
+          type: "nai-extension-auth-failed",
+          sessionId,
+          reason: err.message || "verification_failed",
+        },
+        "*",
+      );
+    }
+  }
+
+  if (step === "signin") {
+    return (
+      <div className="app-card centered-state stack">
+        <h2 style={{ margin: 0 }}>Sign in to NAI</h2>
+        <p className="page-copy">
+          This extension reuses your existing NAI web session. Sign in on NAI,
+          then come back here to continue.
+        </p>
+        <AppButton
+          onClick={() =>
+            window.open("/#/login", "_blank", "noopener,noreferrer")
+          }
+        >
+          Open NAI Sign In
+        </AppButton>
+        <AppButton
+          variant="ghost"
+          onClick={() => {
+            requestTokenFromExtension();
+            bootstrapRef.current?.();
+          }}
+        >
+          I Signed In
+        </AppButton>
+      </div>
+    );
+  }
+
+  if (step === "loading" || step === "starting" || step === "checking") {
+    return (
+      <div className="app-card centered-state stack">
+        <LoadingState
+          message={
+            step === "loading"
+              ? "Preparing Meet verification..."
+              : step === "starting"
+                ? "Starting extension verification..."
+                : "Finalizing verification..."
+          }
+        />
+      </div>
+    );
+  }
+
+  if (step === "liveness" && livenessSessionId) {
+    return (
+      <div className="app-card stack-lg">
+        <div className="stack">
+          <h2 style={{ margin: 0 }}>Verify without leaving Meet</h2>
+          <p className="page-copy">
+            Complete the same NAI liveness flow here in the extension window.
+            Leaving the Meet tab will invalidate this attempt.
+          </p>
+        </div>
+        <LivenessChallenge
+          sessionId={livenessSessionId}
+          onComplete={handleComplete}
+          onError={(message) => {
+            setError(message || "Liveness failed");
+            setStep("error");
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (step === "done") {
+    return (
+      <div className="app-card centered-state stack">
+        <h2 style={{ margin: 0 }}>You are verified</h2>
+        <p className="page-copy">
+          Verification completed through the Meet extension flow.
+        </p>
+        {verification?.verificationExpiresAt ? (
+          <div className="code-chip">
+            Valid until{" "}
+            {new Date(verification.verificationExpiresAt).toLocaleTimeString()}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (step === "invalidated") {
+    return (
+      <div className="app-card centered-state stack">
+        <Notice tone="danger">{error}</Notice>
+        <AppButton onClick={() => window.location.reload()}>Restart</AppButton>
+      </div>
+    );
+  }
+
+  if (step === "error") {
+    return (
+      <div className="app-card centered-state stack">
+        <Notice tone="danger">{error || "Verification failed."}</Notice>
+        <AppButton onClick={() => window.location.reload()}>
+          Try Again
+        </AppButton>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-card centered-state stack">
+      <h2 style={{ margin: 0 }}>Meet verification required</h2>
+      <p className="page-copy">
+        Complete NAI verification here. If you leave the Meet tab before
+        finishing, the attempt will fail and you will need to restart.
+      </p>
+      <div className="code-chip">{meetingCode}</div>
+      <AppButton onClick={beginVerification}>Start Verification</AppButton>
     </div>
   );
 }
@@ -1849,8 +2204,18 @@ function MeetOverviewScreen() {
 
     loadSessions(cancelled);
 
+    const timer = setInterval(() => loadSessions(false), 5000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") loadSessions(false);
+    };
+    window.addEventListener("focus", onVisibility);
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       cancelled = true;
+      clearInterval(timer);
+      window.removeEventListener("focus", onVisibility);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
@@ -1903,14 +2268,19 @@ function MeetOverviewScreen() {
           <SessionListItem
             key={session.sessionId}
             title={session.meetingCode}
-            subtitle={`${session.role === "host" ? "Host" : "Participant"} · Reverify every ${session.reauthIntervalMinutes} min`}
+            subtitle={[
+              session.role === "host" ? "Host" : "Participant",
+              session.verificationSource
+                ? `Verified via ${session.verificationSource}`
+                : null,
+              `Reverify every ${session.reauthIntervalMinutes} min`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
             meta={
               session.verificationExpiresAt
                 ? `Valid until ${formatDateTime(session.verificationExpiresAt)}`
                 : `Started ${formatDateTime(session.startedAt)}`
-            }
-            status={
-              session.role === "host" ? "verified" : session.participantStatus
             }
             code={session.meetingCode}
             actionLabel="Cancel"
@@ -2141,7 +2511,7 @@ function SessionListItem({
           style={{ justifyContent: "space-between" }}
         >
           <div className="list-item__title">{title}</div>
-          <StatusTag status={status} />
+          {status ? <StatusTag status={status} /> : null}
         </div>
         <div className="list-item__subtitle">{subtitle}</div>
         <div className="list-item__subtitle">{meta}</div>
@@ -2212,7 +2582,12 @@ function decodeJwt(token) {
 }
 
 function isPublicRoute(pathname) {
-  return pathname === "/" || pathname === "/login" || pathname === "/register";
+  return (
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname === "/meet/extension-auth"
+  );
 }
 
 function isKycRoute(pathname) {

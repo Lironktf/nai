@@ -34,15 +34,32 @@ const CORS_ORIGINS = [
   process.env.MOBILE_ORIGIN,
 ].filter(Boolean);
 
+function isLocalOrigin(origin) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin || "");
+}
+
+function isLocalRequest(req) {
+  return (
+    isLocalOrigin(req.get("origin")) ||
+    req.ip === "::1" ||
+    req.ip === "127.0.0.1" ||
+    req.hostname === "localhost" ||
+    req.hostname === "127.0.0.1"
+  );
+}
+
 function corsOrigin(origin, callback) {
   if (!origin) return callback(null, true); // native/mobile/non-browser requests
+  if (isLocalOrigin(origin)) {
+    return callback(null, true);
+  }
   if (CORS_ORIGINS.includes(origin)) return callback(null, true);
   return callback(new Error("Not allowed by CORS"));
 }
 
 export const io = new SocketServer(httpServer, {
   cors: {
-    origin: CORS_ORIGINS,
+    origin: (origin, callback) => corsOrigin(origin, callback),
     methods: ["GET", "POST"],
   },
 });
@@ -69,6 +86,7 @@ const globalLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => isLocalRequest(req),
 });
 app.use(globalLimiter);
 

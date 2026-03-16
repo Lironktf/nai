@@ -194,6 +194,17 @@ export const api = {
       body: JSON.stringify({ meetingCode, displayName }),
     }),
 
+  meetSessionSelf: (sessionId) => request(`/meet/session/${sessionId}/self`),
+
+  meetExtensionStart: (sessionId) =>
+    request(`/meet/session/${sessionId}/extension/start`, { method: "POST" }),
+
+  meetExtensionInvalidate: (sessionId, reason) =>
+    request(`/meet/session/${sessionId}/extension/invalidate`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+
   meetLivenessStart: (sessionId) =>
     request(`/meet/session/${sessionId}/liveness/start`, { method: "POST" }),
 
