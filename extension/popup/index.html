@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NAI Meet Verification</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="popup-header">
+        <div>
+          <p class="popup-kicker">Google Meet</p>
+          <h1 class="popup-title">NAI Verification</h1>
+        </div>
+        <div id="status" class="popup-status">Preparing…</div>
+      </header>
+      <p class="popup-copy">
+        Stay on the bound Meet tab while verification runs. Changing tabs invalidates the attempt.
+      </p>
+      <div id="banner" class="popup-banner" hidden></div>
+      <iframe
+        id="auth-frame"
+        class="popup-frame"
+        title="NAI Meet verification"
+        allow="camera; microphone"
+      ></iframe>
+    </main>
+    <script type="module" src="./popup.js"></script>
+  </body>
+  </html>

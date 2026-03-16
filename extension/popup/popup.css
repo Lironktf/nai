@@ -1,0 +1,71 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-width: 400px;
+  min-height: 720px;
+  background: #050505;
+  color: #f6f6f6;
+  font-family: "Times New Roman", Times, serif;
+}
+
+.popup-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  box-sizing: border-box;
+  min-height: 100vh;
+}
+
+.popup-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.popup-kicker {
+  margin: 0 0 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #b8b8b8;
+}
+
+.popup-title {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.popup-status {
+  border: 1px solid #f6f6f6;
+  padding: 8px 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.popup-copy {
+  margin: 0;
+  color: #cfcfcf;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.popup-banner {
+  border: 1px solid #8b1e1e;
+  background: #2b1111;
+  color: #ffd9d9;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.popup-frame {
+  flex: 1;
+  min-height: 560px;
+  width: 100%;
+  border: 1px solid #2c2c2c;
+  background: #0a0a0a;
+}

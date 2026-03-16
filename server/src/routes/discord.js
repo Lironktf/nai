@@ -22,8 +22,8 @@ import {
 
 const router = Router();
 const CODE_RE = /^[A-HJ-NP-Z2-9]{4}$/;
-const MIN_REAUTH_MINUTES = 5;
-const MAX_REAUTH_MINUTES = 60;
+const MIN_REAUTH_MINUTES = 1;
+const MAX_REAUTH_MINUTES = 99;
 
 function jsonResponse(res, body) {
   return res.status(200).json(body);
