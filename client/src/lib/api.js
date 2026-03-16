@@ -289,4 +289,52 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ enrollmentVideoId, decision, rejectReason }),
     }),
+
+  // ── Wallet linking (optional blockchain layer) ─────────────────────────────
+
+  walletChallenge: (walletAddress) =>
+    request("/wallet/challenge", {
+      method: "POST",
+      body: JSON.stringify({ walletAddress }),
+    }),
+
+  walletVerify: (linkId, signature) =>
+    request("/wallet/verify", {
+      method: "POST",
+      body: JSON.stringify({ linkId, signature }),
+    }),
+
+  walletLinked: () => request("/wallet/linked"),
+
+  walletUnlink: (id) =>
+    request(`/wallet/${id}/unlink`, { method: "POST" }),
+
+  walletSetPrimary: (id) =>
+    request(`/wallet/${id}/primary`, { method: "PATCH" }),
+
+  // ── Attestations ───────────────────────────────────────────────────────────
+
+  attestVerifiedHuman: (walletLinkId) =>
+    request("/attestation/verified-human", {
+      method: "POST",
+      body: JSON.stringify({ walletLinkId }),
+    }),
+
+  attestPresenceCheckpoint: (source, walletLinkId) =>
+    request("/attestation/presence-checkpoint", {
+      method: "POST",
+      body: JSON.stringify({ source, walletLinkId }),
+    }),
+
+  attestationRevoke: (uid) =>
+    request(`/attestation/revoke/${uid}`, { method: "POST" }),
+
+  attestationUser: () => request("/attestation/user"),
+
+  attestationStatus: (uid) => request(`/attestation/status/${uid}`),
+
+  attestationRevokeAllForWallet: (walletLinkId) =>
+    request(`/attestation/revoke-all-for-wallet/${walletLinkId}`, {
+      method: "POST",
+    }),
 };

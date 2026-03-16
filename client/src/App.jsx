@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import { WagmiProvider } from "wagmi";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import logoUrl from "../../assets/whiteNaiLogo.png";
 import AppButton from "./components/AppButton.jsx";
 import FormField from "./components/FormField.jsx";
@@ -7,8 +9,12 @@ import LivenessChallenge from "./components/LivenessChallenge.jsx";
 import UserAvatar from "./components/UserAvatar.jsx";
 import EnrollmentFlow from "./pages/EnrollmentFlow.jsx";
 import AdminPanel from "./pages/AdminPanel.jsx";
+import WalletLink from "./pages/WalletLink.jsx";
+import { wagmiConfig } from "./lib/wagmi.js";
 import { api, clearToken, getToken, setToken } from "./lib/api.js";
 import { navigate, useHashRoute } from "./lib/router.js";
+
+const queryClient = new QueryClient();
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const PERSONA_SDK_URL = "https://cdn.withpersona.com/dist/persona-v4.8.0.js";
@@ -483,6 +489,23 @@ export default function App() {
           copy="Run the Discord slash command, tap Authenticate, and enter the 4-character code here."
         />
       </MainShell>
+    );
+  }
+
+  if (pathname === "/wallet") {
+    return (
+      <WagmiProvider config={wagmiConfig}>
+        <QueryClientProvider client={queryClient}>
+          <MainShell
+            account={account}
+            onSignOut={handleSignOut}
+            title="Wallet"
+            kicker="Blockchain"
+          >
+            <WalletLink />
+          </MainShell>
+        </QueryClientProvider>
+      </WagmiProvider>
     );
   }
 
@@ -998,6 +1021,11 @@ function HomeScreen({ account, onSignOut }) {
             kicker="Category"
             title="Direct"
             onClick={() => navigate("/direct")}
+          />
+          <ActionCard
+            kicker="Optional"
+            title="Wallet & Attestations"
+            onClick={() => navigate("/wallet")}
           />
         </div>
       </section>
